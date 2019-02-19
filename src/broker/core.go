@@ -10,19 +10,25 @@ type MetaDataBroker interface {
 	AddFailure(ctx context.Context, address string, reportID string) error
 }
 
+type SlotRange struct {
+	Start int
+	End   int
+}
+
 type Node struct {
-	address     string
-	clusterName string
+	Address     string
+	ClusterName string
+	Slots       []SlotRange
 }
 
 type Cluster struct {
-	name  string
-	epoch int64
-	nodes []*Node
+	Name  string
+	Epoch int64
+	Nodes []*Node
 }
 
 type Host struct {
-	address string
-	epoch   int64
-	nodes   []*Node
+	Address string
+	Epoch   int64
+	Nodes   []*Node
 }
