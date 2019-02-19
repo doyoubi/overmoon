@@ -7,10 +7,10 @@
     "slots": [<string>],
 }
 
-/configurable_prefix/hosts/<host>/epoch => <epoch>
+/configurable_prefix/hosts/epoch/<host> => <epoch>
 
 /configurable_prefix/clusters/nodes/<name>/<node_address> => {
-    "slots": [<string>],
+    "slots": [[<int>, <int>], [<int>]],
 }
 
 /configurable_prefix/clusters/epoch/<name> => <epoch>

@@ -25,7 +25,9 @@ func prepareData(assert *assert.Assertions) {
 	client.Put(ctx, "/integration_test/clusters/epoch/clustername2", "666")
 	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.1:7001", "{\"slots\":[[0,5000]]}")
 	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.1:7002", "{\"slots\":[[5001,10000]]}")
-	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.1:7003", "{\"slots\":[[10001,15000], [15001,16383]]}")
+	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.2:7003", "{\"slots\":[[10001,15000], [15001,16382], [16383]]}")
+	client.Put(ctx, "/integration_test/hosts/epoch/127.0.0.1:5299", "2333")
+	client.Put(ctx, "/integration_test/hosts/epoch/127.0.0.2:5299", "6666")
 }
 
 func genBroker(assert *assert.Assertions) *broker.EtcdMetaBroker {
@@ -83,11 +85,29 @@ func TestEtcdGetCluster(t *testing.T) {
 	assert.Equal(nodes[2].ClusterName, "clustername1")
 	assert.Equal(nodes[0].Address, "127.0.0.1:7001")
 	assert.Equal(nodes[1].Address, "127.0.0.1:7002")
-	assert.Equal(nodes[2].Address, "127.0.0.1:7003")
+	assert.Equal(nodes[2].Address, "127.0.0.2:7003")
 	assert.Equal(nodes[0].Slots, []broker.SlotRange{broker.SlotRange{Start: 0, End: 5000}})
 	assert.Equal(nodes[1].Slots, []broker.SlotRange{broker.SlotRange{Start: 5001, End: 10000}})
 	assert.Equal(nodes[2].Slots, []broker.SlotRange{
 		broker.SlotRange{Start: 10001, End: 15000},
-		broker.SlotRange{Start: 15001, End: 16383},
+		broker.SlotRange{Start: 15001, End: 16382},
+		broker.SlotRange{Start: 16383, End: 16383},
 	})
+}
+
+func TestEtcdGetHosts(t *testing.T) {
+	assert := assert.New(t)
+
+	prepareData(assert)
+	etcdBroker := genBroker(assert)
+
+	ctx := context.Background()
+
+	addresses, err := etcdBroker.GetHostAddresses(ctx)
+	assert.Nil(err)
+	assert.NotNil(addresses)
+	assert.Equal(2, len(addresses))
+	sort.Strings(addresses)
+	assert.Equal("127.0.0.1:5299", addresses[0])
+	assert.Equal("127.0.0.2:5299", addresses[1])
 }
