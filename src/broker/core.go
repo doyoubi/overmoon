@@ -1,11 +1,13 @@
 package broker
 
+import "context"
+
 type MetaDataBroker interface {
-	GetClusterNames() ([]string, error)
-	GetCluster(name string) (*Cluster, error)
-	GetHostAddresses() ([]string, error)
-	GetHost(address string) (*Host, error)
-	AddFailure(address string, reportID string) error
+	GetClusterNames(ctx context.Context) ([]string, error)
+	GetCluster(ctx context.Context, name string) (*Cluster, error)
+	GetHostAddresses(ctx context.Context) ([]string, error)
+	GetHost(ctx context.Context, address string) (*Host, error)
+	AddFailure(ctx context.Context, address string, reportID string) error
 }
 
 type Node struct {
