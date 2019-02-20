@@ -2,7 +2,7 @@
 
 # Path
 ```
-/configurable_prefix/hosts/<host>/port/<port> => {
+/configurable_prefix/hosts/<host>/nodes/<node address> => {
     "cluster": <string>,
     "slots": [<string>],
 }
@@ -17,5 +17,5 @@
 
 /configurable_prefix/coordinators/<address>/report_id/<report_id> => <report_id>
 
-/configurable_prefix/failures/<address>/<report_id>
+/configurable_prefix/failures/<address>/<report_id> => <int64 timestamp>
 ```

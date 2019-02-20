@@ -28,6 +28,9 @@ func prepareData(assert *assert.Assertions) {
 	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.2:7003", "{\"slots\":[[10001,15000], [15001,16382], [16383]]}")
 	client.Put(ctx, "/integration_test/hosts/epoch/127.0.0.1:5299", "2333")
 	client.Put(ctx, "/integration_test/hosts/epoch/127.0.0.2:5299", "6666")
+	client.Put(ctx, "/integration_test/hosts/127.0.0.1:5299/nodes/127.0.0.1:7001", "{\"cluster\":\"clustername1\",\"slots\":[[0,5000]]}")
+	client.Put(ctx, "/integration_test/hosts/127.0.0.1:5299/nodes/127.0.0.1:7002", "{\"cluster\":\"clustername1\",\"slots\":[[5001,10000]]}")
+	client.Put(ctx, "/integration_test/hosts/127.0.0.2:5299/nodes/127.0.0.2:7003", "{\"cluster\":\"clustername1\",\"slots\":[[10001,15000], [15001,16382], [16383]]}")
 }
 
 func genBroker(assert *assert.Assertions) *broker.EtcdMetaBroker {
@@ -110,4 +113,36 @@ func TestEtcdGetHosts(t *testing.T) {
 	sort.Strings(addresses)
 	assert.Equal("127.0.0.1:5299", addresses[0])
 	assert.Equal("127.0.0.2:5299", addresses[1])
+}
+
+func TestEtcdGetHost(t *testing.T) {
+	assert := assert.New(t)
+
+	prepareData(assert)
+	etcdBroker := genBroker(assert)
+
+	ctx := context.Background()
+
+	host, err := etcdBroker.GetHost(ctx, "127.0.0.1:5299")
+	assert.Nil(err)
+	assert.NotNil(host)
+	assert.Equal(int64(2333), host.Epoch)
+	assert.Equal("127.0.0.1:5299", host.Address)
+	assert.Equal(2, len(host.Nodes))
+	nodes := sortNodes(host.Nodes)
+	assert.Equal(2, len(nodes))
+}
+
+func TestEtcdAddFailures(t *testing.T) {
+	assert := assert.New(t)
+
+	prepareData(assert)
+	etcdBroker := genBroker(assert)
+
+	ctx := context.Background()
+
+	err := etcdBroker.AddFailure(ctx, "127.0.0.1:5299", "report_id1", 10)
+	assert.Nil(err)
+	addresses, err := etcdBroker.GetFailures(ctx)
+	assert.Equal(1, len(addresses))
 }

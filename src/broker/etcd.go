@@ -84,6 +84,7 @@ func (broker *EtcdMetaBroker) GetHostAddresses(ctx context.Context) ([]string, e
 	return keys, nil
 }
 
+// GetHost query the host by address
 func (broker *EtcdMetaBroker) GetHost(ctx context.Context, address string) (*Host, error) {
 	epoch, err := broker.GetEpochByHost(ctx, address)
 	if err != nil {
@@ -100,8 +101,37 @@ func (broker *EtcdMetaBroker) GetHost(ctx context.Context, address string) (*Hos
 	}, nil
 }
 
-func (*EtcdMetaBroker) AddFailure(ctx context.Context, address string, reportID string) error {
-	return nil
+func (broker *EtcdMetaBroker) AddFailure(ctx context.Context, address string, reportID string, ttl int64) error {
+	key := fmt.Sprintf("%s/failures/%s/%s", broker.config.PathPrefix, address, reportID)
+	timestamp := time.Now().Unix()
+	value := fmt.Sprintf("%v", timestamp)
+	res, err := broker.client.Grant(ctx, ttl)
+	if err != nil {
+		return err
+	}
+	opts := []clientv3.OpOption{
+		clientv3.WithLease(clientv3.LeaseID(res.ID)),
+	}
+	_, err = broker.client.Put(ctx, key, value, opts...)
+	return err
+}
+
+func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error) {
+	prefix := fmt.Sprintf("%s/failures/", broker.config.PathPrefix)
+	kv, err := broker.getRangeKeyPostfixAndValue(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+	addresses := make([]string, 0, len(kv))
+	for k := range kv {
+		segs := strings.SplitN(string(k), "/", 2)
+		if len(segs) != 2 {
+			return nil, fmt.Errorf("invalid failure key %s", string(k))
+		}
+		nodeAddress := segs[0]
+		addresses = append(addresses, nodeAddress)
+	}
+	return addresses, nil
 }
 
 func (broker *EtcdMetaBroker) GetEpochByCluster(ctx context.Context, name string) (int64, error) {
@@ -185,7 +215,7 @@ func (broker *EtcdMetaBroker) GetNodesByCluster(ctx context.Context, name string
 
 // GetNodes queries all the nodes under a host.
 func (broker *EtcdMetaBroker) GetNodesByHost(ctx context.Context, address string) ([]*Node, error) {
-	hostsKeyPrefix := fmt.Sprintf("%s/hosts/nodes/%s/", broker.config.PathPrefix, address)
+	hostsKeyPrefix := fmt.Sprintf("%s/hosts/%s/nodes/", broker.config.PathPrefix, address)
 	kvs, err := broker.getRangeKeyPostfixAndValue(ctx, hostsKeyPrefix)
 	if err != nil {
 		return nil, err
