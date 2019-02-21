@@ -1,0 +1,4 @@
+path_prefix: /integration_test
+failure_ttl: 10
+etcd_nodes:
+  - 127.0.0.1:2380
