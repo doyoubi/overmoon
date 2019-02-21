@@ -29,9 +29,9 @@ func NewHttpBrokerProxy(ctx context.Context, broker broker.MetaDataBroker, addre
 func (proxy *HttpBrokerProxy) Serve() error {
 	r := gin.Default()
 	r.GET("/api/clusters/names", proxy.handleGetClusterNames)
-	r.GET("/api/clusters/:name", proxy.handleGetCluster)
+	r.GET("/api/clusters/name/:name", proxy.handleGetCluster)
 	r.GET("/api/hosts/addresses", proxy.handleGetHostAddresses)
-	r.GET("/api/hosts/:address", proxy.handleGetHost)
+	r.GET("/api/hosts/address/:address", proxy.handleGetHost)
 	r.POST("/api/failures/:address/:reportID", proxy.handleAddFailure)
 	r.GET("/api/failures", proxy.handleGetFailure)
 	return r.Run(proxy.address)
@@ -51,7 +51,7 @@ func (proxy *HttpBrokerProxy) handleGetClusterNames(c *gin.Context) {
 	})
 }
 
-// GET /api/clusters/:name
+// GET /api/clusters/name/:name
 func (proxy *HttpBrokerProxy) handleGetCluster(c *gin.Context) {
 	name := c.Param("name")
 	cluster, err := proxy.broker.GetCluster(proxy.ctx, name)
@@ -80,7 +80,7 @@ func (proxy *HttpBrokerProxy) handleGetHostAddresses(c *gin.Context) {
 	})
 }
 
-// GET /api/hosts/:address
+// GET /api/hosts/address/:address
 func (proxy *HttpBrokerProxy) handleGetHost(c *gin.Context) {
 	address := c.Param("address")
 	host, err := proxy.broker.GetHost(proxy.ctx, address)
