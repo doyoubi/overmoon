@@ -101,11 +101,11 @@ func (broker *EtcdMetaBroker) GetHost(ctx context.Context, address string) (*Hos
 	}, nil
 }
 
-func (broker *EtcdMetaBroker) AddFailure(ctx context.Context, address string, reportID string, ttl int64) error {
+func (broker *EtcdMetaBroker) AddFailure(ctx context.Context, address string, reportID string) error {
 	key := fmt.Sprintf("%s/failures/%s/%s", broker.config.PathPrefix, address, reportID)
 	timestamp := time.Now().Unix()
 	value := fmt.Sprintf("%v", timestamp)
-	res, err := broker.client.Grant(ctx, ttl)
+	res, err := broker.client.Grant(ctx, broker.config.FailureTTL)
 	if err != nil {
 		return err
 	}
@@ -264,4 +264,5 @@ func (broker *EtcdMetaBroker) getRangeKeyPostfixAndValue(ctx context.Context, pr
 
 type EtcdConfig struct {
 	PathPrefix string
+	FailureTTL int64
 }

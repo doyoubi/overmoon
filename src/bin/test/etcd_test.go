@@ -34,7 +34,10 @@ func prepareData(assert *assert.Assertions) {
 }
 
 func genBroker(assert *assert.Assertions) *broker.EtcdMetaBroker {
-	cfg := &broker.EtcdConfig{PathPrefix: "/integration_test"}
+	cfg := &broker.EtcdConfig{
+		PathPrefix: "/integration_test",
+		FailureTTL: 10,
+	}
 	etcdBroker, err := broker.NewEtcdMetaBrokerFromEndpoints(cfg, endpoints)
 	assert.Nil(err)
 	assert.NotNil(etcdBroker)
@@ -141,7 +144,7 @@ func TestEtcdAddFailures(t *testing.T) {
 
 	ctx := context.Background()
 
-	err := etcdBroker.AddFailure(ctx, "127.0.0.1:5299", "report_id1", 10)
+	err := etcdBroker.AddFailure(ctx, "127.0.0.1:5299", "report_id1")
 	assert.Nil(err)
 	addresses, err := etcdBroker.GetFailures(ctx)
 	assert.Equal(1, len(addresses))
