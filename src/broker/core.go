@@ -1,6 +1,11 @@
 package broker
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var NotExists = errors.New("Missing key")
 
 // MetaDataBroker abstracts the real broker behind this proxy.
 type MetaDataBroker interface {
@@ -14,15 +19,17 @@ type MetaDataBroker interface {
 
 // SlotRange is the slot range of redis cluster. Start and End will be the same the single slot.
 type SlotRange struct {
-	Start int `json:"start"`
-	End   int `json:"end"`
+	Start int    `json:"start"`
+	End   int    `json:"end"`
+	Tag   string `json:"tag"`
 }
 
 // Node is redis node.
 type Node struct {
-	Address     string      `json:"address"`
-	ClusterName string      `json:"cluster_name"`
-	Slots       []SlotRange `json:"slots"`
+	Address      string      `json:"address"`
+	ProxyAddress string      `json:"proxy_address"`
+	ClusterName  string      `json:"cluster_name"`
+	Slots        []SlotRange `json:"slots"`
 }
 
 // Cluster is the redis cluster we implement.

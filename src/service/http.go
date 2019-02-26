@@ -55,6 +55,12 @@ func (proxy *HttpBrokerProxy) handleGetClusterNames(c *gin.Context) {
 func (proxy *HttpBrokerProxy) handleGetCluster(c *gin.Context) {
 	name := c.Param("name")
 	cluster, err := proxy.broker.GetCluster(proxy.ctx, name)
+	if err == broker.NotExists {
+		c.JSON(200, gin.H{
+			"cluster": nil,
+		})
+		return
+	}
 	if err != nil {
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("%s", err),
@@ -84,6 +90,12 @@ func (proxy *HttpBrokerProxy) handleGetHostAddresses(c *gin.Context) {
 func (proxy *HttpBrokerProxy) handleGetHost(c *gin.Context) {
 	address := c.Param("address")
 	host, err := proxy.broker.GetHost(proxy.ctx, address)
+	if err == broker.NotExists {
+		c.JSON(200, gin.H{
+			"host": nil,
+		})
+		return
+	}
 	if err != nil {
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("%s", err),

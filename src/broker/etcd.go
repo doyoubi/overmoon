@@ -40,7 +40,6 @@ func NewEtcdMetaBroker(config *EtcdConfig, client *clientv3.Client) (*EtcdMetaBr
 // GetClusterNames retrieves all the cluster names from etcd.
 func (broker *EtcdMetaBroker) GetClusterNames(ctx context.Context) ([]string, error) {
 	clusterKeyPrefix := fmt.Sprintf("%s/clusters/epoch/", broker.config.PathPrefix)
-	// return broker.getRangeKeyPostfix(ctx, clusterKeyPrefix)
 	kvs, err := broker.getRangeKeyPostfixAndValue(ctx, clusterKeyPrefix)
 	if err != nil {
 		return nil, err
@@ -152,7 +151,7 @@ func (broker *EtcdMetaBroker) GetEpoch(ctx context.Context, key string) (int64, 
 	}
 
 	if len(res.Kvs) != 1 {
-		return 0, fmt.Errorf("Unexpected kv number %d", len(res.Kvs))
+		return 0, NotExists
 	}
 	kv := res.Kvs[0]
 
@@ -161,7 +160,8 @@ func (broker *EtcdMetaBroker) GetEpoch(ctx context.Context, key string) (int64, 
 }
 
 type NodeValue struct {
-	Slots [][]int `json:"slots"`
+	Slots        [][]int `json:"slots"`
+	ProxyAddress string  `json:"proxy_address"`
 }
 
 func parseRanges(slots [][]int) ([]SlotRange, error) {
@@ -204,9 +204,10 @@ func (broker *EtcdMetaBroker) GetNodesByCluster(ctx context.Context, name string
 			return nil, err
 		}
 		node := Node{
-			Address:     address,
-			ClusterName: name,
-			Slots:       slotRanges,
+			Address:      address,
+			ProxyAddress: nodeValue.ProxyAddress,
+			ClusterName:  name,
+			Slots:        slotRanges,
 		}
 		nodes = append(nodes, &node)
 	}
@@ -222,7 +223,7 @@ func (broker *EtcdMetaBroker) GetNodesByHost(ctx context.Context, address string
 	}
 	nodes := make([]*Node, 0, len(kvs))
 	for k, v := range kvs {
-		address := string(k)
+		node_address := string(k)
 		hostValue := HostValue{}
 		err := json.Unmarshal(v, &hostValue)
 		if err != nil {
@@ -233,9 +234,10 @@ func (broker *EtcdMetaBroker) GetNodesByHost(ctx context.Context, address string
 			return nil, err
 		}
 		node := Node{
-			Address:     address,
-			ClusterName: hostValue.Cluster,
-			Slots:       slotRanges,
+			Address:      node_address,
+			ProxyAddress: address,
+			ClusterName:  hostValue.Cluster,
+			Slots:        slotRanges,
 		}
 		nodes = append(nodes, &node)
 	}

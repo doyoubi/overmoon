@@ -11,6 +11,7 @@
 
 /configurable_prefix/clusters/nodes/<name>/<node_address> => {
     "slots": [[<int>, <int>], [<int>]],
+    "proxy_address": <string>,
 }
 
 /configurable_prefix/clusters/epoch/<name> => <epoch>
