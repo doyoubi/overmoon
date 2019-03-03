@@ -20,7 +20,35 @@ func NewTxnBroker(config *EtcdConfig, stm conc.STM) *TxnBroker {
 	}
 }
 
+func (broker *TxnBroker) ReplaceNode(oldNode, newNode *Node, currClusterEpoch int64) error {
+	err := broker.AddNode(newNode, currClusterEpoch)
+	if err != nil {
+		return err
+	}
+	return broker.RemoveNode(oldNode, currClusterEpoch+1)
+}
+
 func (broker *TxnBroker) RemoveNode(node *Node, currClusterEpoch int64) error {
+	err := broker.removeNodeWithoutBumping(node, currClusterEpoch)
+	if err != nil {
+		return err
+	}
+
+	broker.bumpClusterEpoch(node.ClusterName, currClusterEpoch)
+	hostEpoch := broker.getHostEpoch(node.Address)
+	if hostEpoch == "" {
+		return nil
+	}
+	hostEpochInt, err := strconv.ParseInt(hostEpoch, 10, 64)
+	if err != nil {
+		return err
+	}
+	broker.bumpHostEpoch(node.Address, hostEpochInt)
+
+	return nil
+}
+
+func (broker *TxnBroker) removeNodeWithoutBumping(node *Node, currClusterEpoch int64) error {
 	clusterName := node.ClusterName
 	host := node.ProxyAddress
 	nodeAddress := node.Address
@@ -37,17 +65,6 @@ func (broker *TxnBroker) RemoveNode(node *Node, currClusterEpoch int64) error {
 
 	clusterNodeKey := fmt.Sprintf("%s/clusters/nodes/%s/%s", broker.config.PathPrefix, clusterName, nodeAddress)
 	broker.stm.Del(clusterNodeKey)
-
-	broker.bumpClusterEpoch(clusterName, currClusterEpoch)
-	hostEpoch := broker.getHostEpoch(host)
-	hostEpochInt, err := strconv.ParseInt(hostEpoch, 10, 64)
-	if err != nil {
-		return err
-	}
-	if hostEpoch != "" {
-		broker.bumpHostEpoch(host, hostEpochInt)
-	}
-
 	return nil
 }
 

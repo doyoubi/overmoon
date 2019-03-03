@@ -128,6 +128,12 @@ func (broker *EtcdMetaManipulationBroker) CreateBasicClusterMeta(ctx context.Con
 }
 
 func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange) (*Node, error) {
+	return broker.allocateNode(ctx, clusterName, currClusterEpoch, slotRanges, broker.addNode)
+}
+
+func (broker *EtcdMetaManipulationBroker) allocateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange,
+	commitFunc func(context.Context, int64, *Node) error) (*Node, error) {
+
 	hostAddresses, err := broker.metaDataBroker.GetHostAddresses(ctx)
 	if err != nil {
 		return nil, err
@@ -155,7 +161,7 @@ func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, cluste
 				ClusterName:  clusterName,
 				Slots:        slotRanges,
 			}
-			err := broker.addNode(ctx, currClusterEpoch, node)
+			err := commitFunc(ctx, currClusterEpoch, node)
 			if err == ErrClusterEpochChanged {
 				return nil, err
 			} else if err == ErrHostNotExist {
@@ -197,10 +203,35 @@ func (broker *EtcdMetaManipulationBroker) getAllNodesByHost(ctx context.Context,
 	return nodeAddresses, nil
 }
 
-func (broker *EtcdMetaManipulationBroker) DeleteNode(ctx context.Context, node *Node) error {
-	return nil
+func (broker *EtcdMetaManipulationBroker) DeleteNode(ctx context.Context, currClusterEpoch int64, node *Node) error {
+	// TODO: timeout and isolation level
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		return NewTxnBroker(broker.config, s).RemoveNode(node, currClusterEpoch)
+	})
+
+	if response != nil {
+		log.Printf("resp %v", response.Succeeded)
+	}
+
+	return err
 }
 
-func (broker *EtcdMetaManipulationBroker) ReplaceNode(ctx context.Context, node *Node) (*Node, error) {
-	return nil, nil
+func (broker *EtcdMetaManipulationBroker) ReplaceNode(ctx context.Context, currClusterEpoch int64, node *Node) (*Node, error) {
+	return broker.allocateNode(ctx, node.ClusterName, currClusterEpoch, node.Slots,
+		func(ctx context.Context, currClusterEpoch int64, newNode *Node) error {
+			return broker.swapNode(ctx, currClusterEpoch, node, newNode)
+		})
+}
+
+func (broker *EtcdMetaManipulationBroker) swapNode(ctx context.Context, currClusterEpoch int64, oldNode, newNode *Node) error {
+	// TODO: timeout and isolation level
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		return NewTxnBroker(broker.config, s).ReplaceNode(oldNode, newNode, currClusterEpoch)
+	})
+
+	if response != nil {
+		log.Printf("resp %v", response.Succeeded)
+	}
+
+	return err
 }
