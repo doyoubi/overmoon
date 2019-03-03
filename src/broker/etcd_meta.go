@@ -159,21 +159,6 @@ func (broker *EtcdMetaBroker) GetEpoch(ctx context.Context, key string) (int64, 
 	return epoch, err
 }
 
-func parseRanges(slots [][]int) ([]SlotRange, error) {
-	slotRanges := make([]SlotRange, 0, len(slots))
-	for _, slotRange := range slots {
-		if len(slotRange) == 1 || len(slotRange) == 2 {
-			slotRanges = append(slotRanges, SlotRange{
-				Start: slotRange[0],
-				End:   slotRange[len(slotRange)-1],
-			})
-		} else {
-			return nil, fmt.Errorf("Invalid slot range %v", slotRange)
-		}
-	}
-	return slotRanges, nil
-}
-
 // GetNodesByCluster queries all the nodes under a cluster.
 func (broker *EtcdMetaBroker) GetNodesByCluster(ctx context.Context, name string) ([]*Node, error) {
 	nodesKeyPrefix := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, name)

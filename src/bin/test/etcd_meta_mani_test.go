@@ -38,8 +38,95 @@ func TestCreateBasicClusterMeta(t *testing.T) {
 	assert := assert.New(t)
 	initManiData(assert)
 	broker := genManiBroker(assert)
+	meta_broker := genBroker(assert)
 	ctx := context.Background()
 
-	err := broker.CreateBasicClusterMeta(ctx, "test_mani_create_basic_meta", 1, 1024)
+	clusterName := "test_mani_create_basic_meta"
+	err := broker.CreateBasicClusterMeta(ctx, clusterName, 1, 1024)
 	assert.NoError(err)
+	cluster, err := meta_broker.GetCluster(ctx, clusterName)
+	assert.NoError(err)
+	assert.NotNil(cluster)
+	assert.Equal(int64(1), cluster.Epoch)
+	assert.Equal(0, len(cluster.Nodes))
+	assert.Equal(clusterName, cluster.Name)
+}
+
+func TestAddHost(t *testing.T) {
+	assert := assert.New(t)
+	initManiData(assert)
+	broker := genManiBroker(assert)
+	ctx := context.Background()
+
+	nodes := []string{
+		"127.0.0.1:7001",
+		"127.0.0.1:7002",
+		"127.0.0.1:7003",
+	}
+	err := broker.AddHost(ctx, "127.0.0.1:5299", nodes)
+	assert.NoError(err)
+}
+
+func TestCreateNode(t *testing.T) {
+	assert := assert.New(t)
+	initManiData(assert)
+	b := genManiBroker(assert)
+	ctx := context.Background()
+
+	nodes := []string{
+		"127.0.0.1:7001",
+	}
+	clusterName := "test_create_node"
+
+	err := b.AddHost(ctx, "127.0.0.1:5299", nodes)
+	assert.NoError(err)
+	err = b.CreateBasicClusterMeta(ctx, clusterName, 1, 1024)
+	assert.NoError(err)
+	slots := []broker.SlotRange{
+		broker.SlotRange{
+			Start: 0,
+			End:   2333,
+			Tag:   "",
+		},
+	}
+	node, err := b.CreateNode(ctx, clusterName, 1, slots)
+	assert.NoError(err)
+	assert.NotNil(node)
+	assert.Equal(node.Address, "127.0.0.1:7001")
+	assert.Equal(node.ClusterName, clusterName)
+	assert.Equal(node.ProxyAddress, "127.0.0.1:5299")
+	assert.Equal(1, len(node.Slots))
+	assert.Equal(int64(0), node.Slots[0].Start)
+	assert.Equal(int64(2333), node.Slots[0].End, 2333)
+	assert.Equal("", node.Slots[0].Tag)
+}
+
+func TestCreateCluster(t *testing.T) {
+	assert := assert.New(t)
+	initManiData(assert)
+	b := genManiBroker(assert)
+	mb := genBroker(assert)
+	ctx := context.Background()
+
+	nodes1 := []string{
+		"127.0.0.1:7001",
+		"127.0.0.1:7002",
+	}
+	nodes2 := []string{
+		"127.0.0.2:7001",
+		"127.0.0.2:7002",
+	}
+	clusterName := "test_create_node"
+
+	err := b.AddHost(ctx, "127.0.0.1:5299", nodes1)
+	err = b.AddHost(ctx, "127.0.0.2:5299", nodes2)
+	assert.NoError(err)
+	err = b.CreateCluster(ctx, clusterName, 4, 1024)
+	assert.NoError(err)
+
+	cluster, err := mb.GetCluster(ctx, clusterName)
+	assert.NoError(err)
+	assert.Equal(clusterName, cluster.Name)
+	assert.True(cluster.Epoch >= 5)
+	assert.Equal(4, len(cluster.Nodes))
 }

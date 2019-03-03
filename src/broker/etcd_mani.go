@@ -15,6 +15,7 @@ import (
 
 var ErrClusterEpochChanged = errors.New("cluster epoch changed")
 var ErrClusterExists = errors.New("cluster already exists")
+var ErrHostExists = errors.New("host already existed")
 var ErrHostNotExist = errors.New("host not exist")
 var ErrNodeNotAvailable = errors.New("node not available")
 var ErrNoAvailableResource = errors.New("no available resource")
@@ -50,6 +51,55 @@ func NewEtcdMetaManipulationBroker(config *EtcdConfig, client *clientv3.Client) 
 	}, nil
 }
 
+func (broker *EtcdMetaManipulationBroker) AddHost(ctx context.Context, address string, nodes []string) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		hostEpochKey := fmt.Sprintf("%s/hosts/epoch/%s", broker.config.PathPrefix, address)
+		hostEpoch := s.Get(hostEpochKey)
+		if hostEpoch != "" {
+			return ErrHostExists
+		}
+
+		s.Put(hostEpochKey, "1")
+		for _, nodeAddress := range nodes {
+			nodeAddressKey := fmt.Sprintf("%s/hosts/all_nodes/%s/%s", broker.config.PathPrefix, address, nodeAddress)
+			// empty string for not being used by any cluster
+			s.Put(nodeAddressKey, "")
+		}
+
+		return nil
+	})
+	log.Printf("response %v", response)
+	return err
+}
+
+func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clusterName string, nodeNum, maxMemory int64) error {
+	err := broker.CreateBasicClusterMeta(ctx, clusterName, nodeNum, maxMemory)
+	if err != nil {
+		return err
+	}
+
+	gap := MaxSlotNumber / nodeNum
+
+	for i := int64(0); i != nodeNum; i++ {
+		epoch, err := broker.metaDataBroker.GetEpochByCluster(ctx, clusterName)
+		if err != nil {
+			return err
+		}
+		slots := SlotRange{
+			Start: i * gap,
+			End:   (i+1)*gap - 1,
+			Tag:   "",
+		}
+		_, err = broker.CreateNode(ctx, clusterName, epoch, []SlotRange{slots})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// TODO: timeout
 func (broker *EtcdMetaManipulationBroker) CreateBasicClusterMeta(ctx context.Context, clusterName string, nodeNum, maxMemory int64) error {
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
@@ -83,6 +133,7 @@ func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, cluste
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("Get hosts %v", hostAddresses)
 
 	for _, hostAddress := range hostAddresses {
 		nodes, err := broker.getAllNodesByHost(ctx, hostAddress)
@@ -90,6 +141,10 @@ func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, cluste
 			log.Printf("Failed to get nodes %s", err)
 			continue
 		}
+		log.Printf("Get nodes %v", nodes)
+
+		// TODO: need to check the number of existing nodes on this host.
+		// TODO: shuffle the nodes to avoid collision
 
 		for nodeAddress, cluster := range nodes {
 			if cluster != "" {

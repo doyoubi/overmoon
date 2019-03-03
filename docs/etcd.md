@@ -62,6 +62,7 @@ For MetaManipulationBroker
   * `/hosts/all_nodes/<proxy_address>/<node address>`
   * `/hosts/epoch/<proxy_address>`
 - Trigger bump_epoch_for_cluster_hosts when updates cluster.
+- Can't add node to `/hosts/all_nodes/<proxy_address>/<node address>` after the initialization of host.
 
 ### Operations List
 
@@ -125,3 +126,16 @@ Trigger bump_epoch_for_cluster_hosts.
 #### Fix Inconsistent Data
 - Fix conflict for the four key
 - Fix other conflict and problems from these four keys.
+
+#### Add Host
+Wrap them in a transaction
+- Check if the host already exists
+- Set `/hosts/epoch/<proxy_address>` and `/hosts/all_nodes/<proxy_address>/<node address>`
+
+#### Remove Host
+Wrap them in a transaction
+- Check if there's cluster on the hosts
+- Remove
+  * `/hosts/epoch/<proxy_address>`
+  * `/hosts/all_nodes/<proxy_address>/<node address>`
+  * `/hosts/<proxy_address>/nodes/<node address>`

@@ -25,8 +25,8 @@ type MetaManipulationBroker interface {
 
 // SlotRange is the slot range of redis cluster. Start and End will be the same the single slot.
 type SlotRange struct {
-	Start int    `json:"start"`
-	End   int    `json:"end"`
+	Start int64  `json:"start"`
+	End   int64  `json:"end"`
 	Tag   string `json:"tag"`
 }
 
@@ -51,3 +51,5 @@ type Host struct {
 	Epoch   int64   `json:"epoch"`
 	Nodes   []*Node `json:"nodes"`
 }
+
+const MaxSlotNumber = 16384
