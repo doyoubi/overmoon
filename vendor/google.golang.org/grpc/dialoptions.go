@@ -26,6 +26,7 @@ import (
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/internal"
 	"google.golang.org/grpc/internal/backoff"
 	"google.golang.org/grpc/internal/envconfig"
@@ -328,14 +329,17 @@ func WithTimeout(d time.Duration) DialOption {
 	})
 }
 
-func withContextDialer(f func(context.Context, string) (net.Conn, error)) DialOption {
+// WithContextDialer returns a DialOption that sets a dialer to create
+// connections. If FailOnNonTempDialError() is set to true, and an error is
+// returned by f, gRPC checks the error's Temporary() method to decide if it
+// should try to reconnect to the network address.
+func WithContextDialer(f func(context.Context, string) (net.Conn, error)) DialOption {
 	return newFuncDialOption(func(o *dialOptions) {
 		o.copts.Dialer = f
 	})
 }
 
 func init() {
-	internal.WithContextDialer = withContextDialer
 	internal.WithResolverBuilder = withResolverBuilder
 	internal.WithHealthCheckFunc = withHealthCheckFunc
 }
@@ -344,8 +348,10 @@ func init() {
 // network addresses. If FailOnNonTempDialError() is set to true, and an error
 // is returned by f, gRPC checks the error's Temporary() method to decide if it
 // should try to reconnect to the network address.
+//
+// Deprecated: use WithContextDialer instead
 func WithDialer(f func(string, time.Duration) (net.Conn, error)) DialOption {
-	return withContextDialer(
+	return WithContextDialer(
 		func(ctx context.Context, addr string) (net.Conn, error) {
 			if deadline, ok := ctx.Deadline(); ok {
 				return f(addr, time.Until(deadline))
@@ -388,6 +394,10 @@ func WithUserAgent(s string) DialOption {
 // WithKeepaliveParams returns a DialOption that specifies keepalive parameters
 // for the client transport.
 func WithKeepaliveParams(kp keepalive.ClientParameters) DialOption {
+	if kp.Time < internal.KeepaliveMinPingTime {
+		grpclog.Warningf("Adjusting keepalive ping interval to minimum period of %v", internal.KeepaliveMinPingTime)
+		kp.Time = internal.KeepaliveMinPingTime
+	}
 	return newFuncDialOption(func(o *dialOptions) {
 		o.copts.KeepaliveParams = kp
 	})
