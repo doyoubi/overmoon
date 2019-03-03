@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -175,54 +174,9 @@ func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, cluste
 }
 
 func (broker *EtcdMetaManipulationBroker) addNode(ctx context.Context, currClusterEpoch int64, node *Node) error {
-	clusterName := node.ClusterName
-	host := node.ProxyAddress
-	nodeAddress := node.Address
-
 	// TODO: timeout and isolation level
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
-		clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
-		// When it's empty there're two cases:
-		newClusterEpoch := s.Get(clusterEpochKey)
-		if newClusterEpoch != strconv.FormatInt(currClusterEpoch, 10) {
-			return ErrClusterEpochChanged
-		}
-
-		hostEpochKey := fmt.Sprintf("%s/hosts/epoch/%s", broker.config.PathPrefix, host)
-		nodeOwnerCluster := fmt.Sprintf("%s/hosts/all_nodes/%s/%s", broker.config.PathPrefix, host, nodeAddress)
-		hostEpoch := s.Get(hostEpochKey)
-		cluster := s.Get(nodeOwnerCluster)
-		if hostEpoch == "" {
-			return ErrHostNotExist
-		}
-		if cluster != "" {
-			return ErrNodeNotAvailable
-		}
-
-		s.Put(nodeOwnerCluster, clusterName)
-
-		hostNode := fmt.Sprintf("%s/hosts/%s/nodes/%s", broker.config.PathPrefix, host, nodeAddress)
-		jsPayload, err := json.Marshal(node)
-		if err != nil {
-			return err
-		}
-		s.Put(hostNode, string(jsPayload))
-
-		clusterNode := fmt.Sprintf("%s/clusters/nodes/%s/%s", broker.config.PathPrefix, clusterName, nodeAddress)
-		jsPayload, err = json.Marshal(node)
-		if err != nil {
-			return err
-		}
-		s.Put(clusterNode, string(jsPayload))
-
-		s.Put(clusterEpochKey, strconv.FormatInt(currClusterEpoch+1, 10))
-		hostEpochInt, err := strconv.ParseInt(hostEpoch, 10, 64)
-		if err != nil {
-			return err
-		}
-		s.Put(hostEpochKey, strconv.FormatInt(hostEpochInt+1, 10))
-
-		return nil
+		return NewTxnBroker(broker.config, s).AddNode(node, currClusterEpoch)
 	})
 
 	log.Printf("resp %v", response.Succeeded)
@@ -241,6 +195,10 @@ func (broker *EtcdMetaManipulationBroker) getAllNodesByHost(ctx context.Context,
 		nodeAddresses[k] = string(v)
 	}
 	return nodeAddresses, nil
+}
+
+func (broker *EtcdMetaManipulationBroker) DeleteNode(ctx context.Context, node *Node) error {
+	return nil
 }
 
 func (broker *EtcdMetaManipulationBroker) ReplaceNode(ctx context.Context, node *Node) (*Node, error) {

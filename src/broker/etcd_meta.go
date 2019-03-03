@@ -11,6 +11,8 @@ import (
 	"go.etcd.io/etcd/clientv3"
 )
 
+// TODO: Need to wrap each API into a transaction.
+
 // EtcdMetaBroker implements the MetaDataBroker interface and serves as a broker backend.
 type EtcdMetaBroker struct {
 	config *EtcdConfig
