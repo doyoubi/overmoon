@@ -7,7 +7,7 @@ import (
 
 var NotExists = errors.New("Missing key")
 
-// MetaDataBroker abstracts the real broker behind this proxy.
+// MetaDataBroker abstracts the ability to check meta data and detect failures.
 type MetaDataBroker interface {
 	GetClusterNames(ctx context.Context) ([]string, error)
 	GetCluster(ctx context.Context, name string) (*Cluster, error)
@@ -15,6 +15,12 @@ type MetaDataBroker interface {
 	GetHost(ctx context.Context, address string) (*Host, error)
 	AddFailure(ctx context.Context, address string, reportID string) error
 	GetFailures(ctx context.Context) ([]string, error)
+}
+
+// MetaManipulationBroker abstracts the ability to manipulate clusters.
+type MetaManipulationBroker interface {
+	CreateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange) (*Node, error)
+	ReplaceNode(ctx context.Context, node *Node, currClusterEpoch int64) (*Node, error)
 }
 
 // SlotRange is the slot range of redis cluster. Start and End will be the same the single slot.

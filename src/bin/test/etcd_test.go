@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"testing"
 
@@ -19,18 +20,52 @@ func prepareData(assert *assert.Assertions) {
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints: endpoints,
 	})
+
+	node1 := &broker.Node{
+		Address:      "127.0.0.1:7001",
+		ProxyAddress: "127.0.0.1:5299",
+		ClusterName:  "clustername1",
+		Slots: []broker.SlotRange{broker.SlotRange{
+			Start: 0, End: 5000, Tag: "",
+		}},
+	}
+	node2 := &broker.Node{
+		Address:      "127.0.0.1:7002",
+		ProxyAddress: "127.0.0.1:5299",
+		ClusterName:  "clustername1",
+		Slots: []broker.SlotRange{broker.SlotRange{
+			Start: 5001, End: 10000, Tag: "",
+		}},
+	}
+	node3 := &broker.Node{
+		Address:      "127.0.0.2:7003",
+		ProxyAddress: "127.0.0.2:5299",
+		ClusterName:  "clustername1",
+		Slots: []broker.SlotRange{
+			broker.SlotRange{Start: 10001, End: 15000, Tag: ""},
+			broker.SlotRange{Start: 15001, End: 16382, Tag: ""},
+			broker.SlotRange{Start: 16383, End: 16383, Tag: ""},
+		},
+	}
+	node1Str, err := json.Marshal(node1)
+	assert.NoError(err)
+	node2Str, err := json.Marshal(node2)
+	assert.NoError(err)
+	node3Str, err := json.Marshal(node3)
+	assert.NoError(err)
+
 	assert.Nil(err)
 	assert.NotNil(client)
 	client.Put(ctx, "/integration_test/clusters/epoch/clustername1", "233")
 	client.Put(ctx, "/integration_test/clusters/epoch/clustername2", "666")
-	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.1:7001", "{\"proxy_address\":\"127.0.0.1:5299\",\"slots\":[[0,5000]]}")
-	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.1:7002", "{\"proxy_address\":\"127.0.0.1:5299\",\"slots\":[[5001,10000]]}")
-	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.2:7003", "{\"proxy_address\":\"127.0.0.2:5299\",\"slots\":[[10001,15000], [15001,16382], [16383]]}")
+	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.1:7001", string(node1Str))
+	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.1:7002", string(node2Str))
+	client.Put(ctx, "/integration_test/clusters/nodes/clustername1/127.0.0.2:7003", string(node3Str))
 	client.Put(ctx, "/integration_test/hosts/epoch/127.0.0.1:5299", "2333")
 	client.Put(ctx, "/integration_test/hosts/epoch/127.0.0.2:5299", "6666")
-	client.Put(ctx, "/integration_test/hosts/127.0.0.1:5299/nodes/127.0.0.1:7001", "{\"cluster\":\"clustername1\",\"slots\":[[0,5000]]}")
-	client.Put(ctx, "/integration_test/hosts/127.0.0.1:5299/nodes/127.0.0.1:7002", "{\"cluster\":\"clustername1\",\"slots\":[[5001,10000]]}")
-	client.Put(ctx, "/integration_test/hosts/127.0.0.2:5299/nodes/127.0.0.2:7003", "{\"cluster\":\"clustername1\",\"slots\":[[10001,15000], [15001,16382], [16383]]}")
+	client.Put(ctx, "/integration_test/hosts/127.0.0.1:5299/nodes/127.0.0.1:7001", string(node1Str))
+	client.Put(ctx, "/integration_test/hosts/127.0.0.1:5299/nodes/127.0.0.1:7002", string(node2Str))
+	client.Put(ctx, "/integration_test/hosts/127.0.0.2:5299/nodes/127.0.0.2:7003", string(node3Str))
 }
 
 func genBroker(assert *assert.Assertions) *broker.EtcdMetaBroker {

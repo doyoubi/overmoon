@@ -40,7 +40,7 @@ func NewEtcdMetaBroker(config *EtcdConfig, client *clientv3.Client) (*EtcdMetaBr
 // GetClusterNames retrieves all the cluster names from etcd.
 func (broker *EtcdMetaBroker) GetClusterNames(ctx context.Context) ([]string, error) {
 	clusterKeyPrefix := fmt.Sprintf("%s/clusters/epoch/", broker.config.PathPrefix)
-	kvs, err := broker.getRangeKeyPostfixAndValue(ctx, clusterKeyPrefix)
+	kvs, err := getRangeKeyPostfixAndValue(ctx, broker.client, clusterKeyPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (broker *EtcdMetaBroker) GetCluster(ctx context.Context, name string) (*Clu
 // GetHostAddresses queries all hosts.
 func (broker *EtcdMetaBroker) GetHostAddresses(ctx context.Context) ([]string, error) {
 	hostKeyPrefix := fmt.Sprintf("%s/hosts/epoch/", broker.config.PathPrefix)
-	kvs, err := broker.getRangeKeyPostfixAndValue(ctx, hostKeyPrefix)
+	kvs, err := getRangeKeyPostfixAndValue(ctx, broker.client, hostKeyPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (broker *EtcdMetaBroker) AddFailure(ctx context.Context, address string, re
 
 func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error) {
 	prefix := fmt.Sprintf("%s/failures/", broker.config.PathPrefix)
-	kv, err := broker.getRangeKeyPostfixAndValue(ctx, prefix)
+	kv, err := getRangeKeyPostfixAndValue(ctx, broker.client, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -159,11 +159,6 @@ func (broker *EtcdMetaBroker) GetEpoch(ctx context.Context, key string) (int64, 
 	return epoch, err
 }
 
-type NodeValue struct {
-	Slots        [][]int `json:"slots"`
-	ProxyAddress string  `json:"proxy_address"`
-}
-
 func parseRanges(slots [][]int) ([]SlotRange, error) {
 	slotRanges := make([]SlotRange, 0, len(slots))
 	for _, slotRange := range slots {
@@ -179,76 +174,49 @@ func parseRanges(slots [][]int) ([]SlotRange, error) {
 	return slotRanges, nil
 }
 
-type HostValue struct {
-	Cluster string  `json:"cluster"`
-	Slots   [][]int `json:"slots"`
-}
-
-// GetNodes queries all the nodes under a cluster.
+// GetNodesByCluster queries all the nodes under a cluster.
 func (broker *EtcdMetaBroker) GetNodesByCluster(ctx context.Context, name string) ([]*Node, error) {
 	nodesKeyPrefix := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, name)
-	kvs, err := broker.getRangeKeyPostfixAndValue(ctx, nodesKeyPrefix)
+	kvs, err := getRangeKeyPostfixAndValue(ctx, broker.client, nodesKeyPrefix)
 	if err != nil {
 		return nil, err
 	}
 	nodes := make([]*Node, 0, len(kvs))
-	for k, v := range kvs {
-		address := string(k)
-		nodeValue := NodeValue{}
-		err := json.Unmarshal(v, &nodeValue)
+	for _, v := range kvs {
+		node := &Node{}
+		err := json.Unmarshal(v, node)
 		if err != nil {
 			return nil, err
 		}
-		slotRanges, err := parseRanges(nodeValue.Slots)
-		if err != nil {
-			return nil, err
-		}
-		node := Node{
-			Address:      address,
-			ProxyAddress: nodeValue.ProxyAddress,
-			ClusterName:  name,
-			Slots:        slotRanges,
-		}
-		nodes = append(nodes, &node)
+		nodes = append(nodes, node)
 	}
 	return nodes, nil
 }
 
-// GetNodes queries all the nodes under a host.
+// GetNodesByHost queries all the nodes under a host.
 func (broker *EtcdMetaBroker) GetNodesByHost(ctx context.Context, address string) ([]*Node, error) {
 	hostsKeyPrefix := fmt.Sprintf("%s/hosts/%s/nodes/", broker.config.PathPrefix, address)
-	kvs, err := broker.getRangeKeyPostfixAndValue(ctx, hostsKeyPrefix)
+	kvs, err := getRangeKeyPostfixAndValue(ctx, broker.client, hostsKeyPrefix)
 	if err != nil {
 		return nil, err
 	}
 	nodes := make([]*Node, 0, len(kvs))
-	for k, v := range kvs {
-		node_address := string(k)
-		hostValue := HostValue{}
-		err := json.Unmarshal(v, &hostValue)
+	for _, v := range kvs {
+		node := &Node{}
+		err := json.Unmarshal(v, node)
 		if err != nil {
 			return nil, err
 		}
-		slotRanges, err := parseRanges(hostValue.Slots)
-		if err != nil {
-			return nil, err
-		}
-		node := Node{
-			Address:      node_address,
-			ProxyAddress: address,
-			ClusterName:  hostValue.Cluster,
-			Slots:        slotRanges,
-		}
-		nodes = append(nodes, &node)
+		nodes = append(nodes, node)
 	}
 	return nodes, nil
 }
 
-func (broker *EtcdMetaBroker) getRangeKeyPostfixAndValue(ctx context.Context, prefix string) (map[string][]byte, error) {
+func getRangeKeyPostfixAndValue(ctx context.Context, client *clientv3.Client, prefix string) (map[string][]byte, error) {
 	opts := []clientv3.OpOption{
 		clientv3.WithPrefix(),
 	}
-	res, err := broker.client.Get(ctx, prefix, opts...)
+	res, err := client.Get(ctx, prefix, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -264,6 +232,7 @@ func (broker *EtcdMetaBroker) getRangeKeyPostfixAndValue(ctx context.Context, pr
 	return postfixes, nil
 }
 
+// EtcdConfig stores broker config.
 type EtcdConfig struct {
 	PathPrefix string
 	FailureTTL int64

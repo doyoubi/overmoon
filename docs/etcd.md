@@ -4,8 +4,14 @@
 For MetaDataBroker
 ```
 /hosts/<proxy_address>/nodes/<node address> => {
-    "cluster": <string>,
-    "slots": [<string>],
+    "address": <string>,
+    "proxy_address": <string>,
+    "cluster_name": <string>,
+    "slots": [{
+        "start": <int>,
+        "end": <int>,
+        "tag": <string>,
+    }, ...],
 }
 
 /hosts/epoch/<proxy_address> => <epoch>
@@ -13,8 +19,14 @@ For MetaDataBroker
 // These nodes belong the a existing cluster if the corresponding config key exists.
 // If not, these nodes belong the a deleting cluster.
 /clusters/nodes/<name>/<node_address> => {
-    "slots": [[<int>, <int>], [<int>]],
+    "address": <string>,
     "proxy_address": <string>,
+    "cluster_name": <string>,
+    "slots": [{
+        "start": <int>,
+        "end": <int>,
+        "tag": <string>,
+    }, ...],
 }
 
 // Indicating whether the cluster exists
@@ -27,7 +39,7 @@ For MetaDataBroker
 
 For MetaManipulationBroker
 ```
-/hosts/all_nodes/<proxy_address>/nodes/<node address> =>
+/hosts/all_nodes/<proxy_address>/<node address> =>
     <cluster name>  // empty string when this node is not used
 
 /tasks/epoch => <epoch>
@@ -47,7 +59,7 @@ For MetaManipulationBroker
 - Single Source Of Truth is based on
   * `/clusters/spec/*`
   * `/clusters/epoch/<name>`
-  * `/hosts/all_nodes/<proxy_address>/nodes/<node address>`
+  * `/hosts/all_nodes/<proxy_address>/<node address>`
   * `/hosts/epoch/<proxy_address>`
 - Trigger bump_epoch_for_cluster_hosts when updates cluster.
 
@@ -61,12 +73,12 @@ For MetaManipulationBroker
 - Create node one by one. Need compensation.
 
 #### Create Node
-- Get some hosts and their epochs through `/hosts/all_nodes/<proxy_address>/nodes/<node address>` and `/hosts/epoch/<proxy_address>`.
+- Get some hosts and their epochs through `/hosts/all_nodes/<proxy_address>/<node address>` and `/hosts/epoch/<proxy_address>`.
 For each available node in each host, try the following in a transaction.
 - Check if the epoch of cluster has changed or if the cluster has been deleted.
 - Check if the host has been deleted. No need to check epoch.
-- Check if `/hosts/all_nodes/<proxy_address>/nodes/<node address>` is empty string.
-- Set the host `/hosts/all_nodes/<proxy_address>/nodes/<node address>` to cluster name
+- Check if `/hosts/all_nodes/<proxy_address>/<node address>` is empty string.
+- Set the host `/hosts/all_nodes/<proxy_address>/<node address>` to cluster name
 - Set the `/hosts/<proxy_address>/nodes/<node address>`
 - Bump the epoch of the host
 - Set the `/clusters/nodes/<name>/<node_address>`
@@ -77,7 +89,7 @@ Trigger bump_epoch_for_cluster_hosts.
 - Get the meta data of old node
 - Same as `Create Node`, but to replace the old node from cluster with the new one.
 - Remove `/hosts/<proxy_address>/nodes/<node address>`
-- Change `/hosts/all_nodes/<proxy_address>/nodes/<node address>` to empty string.
+- Change `/hosts/all_nodes/<proxy_address>/<node address>` to empty string.
 - Bump the epoch of the two hosts
 - Bump the epoch of cluster
 Trigger bump_epoch_for_cluster_hosts.
@@ -86,7 +98,7 @@ Trigger bump_epoch_for_cluster_hosts.
 Wrap them in a transaction
 - Get the old node
 - Remove `/hosts/<proxy_address>/nodes/<node address>`
-- Change `/hosts/all_nodes/<proxy_address>/nodes/<node address>` to empty string.
+- Change `/hosts/all_nodes/<proxy_address>/<node address>` to empty string.
 - Remove node from cluster
 - Bump the epoch of host
 - Bump the epoch of cluster
