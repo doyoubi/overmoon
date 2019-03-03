@@ -14,6 +14,7 @@ import (
 )
 
 var ErrClusterEpochChanged = errors.New("cluster epoch changed")
+var ErrClusterExists = errors.New("cluster already exists")
 var ErrHostNotExist = errors.New("host not exist")
 var ErrNodeNotAvailable = errors.New("node not available")
 var ErrNoAvailableResource = errors.New("no available resource")
@@ -47,6 +48,34 @@ func NewEtcdMetaManipulationBroker(config *EtcdConfig, client *clientv3.Client) 
 		config:         config,
 		client:         client,
 	}, nil
+}
+
+func (broker *EtcdMetaManipulationBroker) CreateBasicClusterMeta(ctx context.Context, clusterName string, nodeNum, maxMemory int64) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
+		clusterEpoch := s.Get(clusterEpochKey)
+		if clusterEpoch != "" {
+			return ErrClusterExists
+		}
+
+		deletingClusterKey := fmt.Sprintf("%s/tasks/operation/remove_nodes/%s", broker.config.PathPrefix, clusterName)
+		deletingCluster := s.Get(deletingClusterKey)
+		if deletingCluster != "" {
+			return ErrClusterExists
+		}
+
+		s.Put(clusterEpochKey, "1")
+		nodeNumKey := fmt.Sprintf("%s/clusters/spec/node_number/%s", broker.config.PathPrefix, clusterName)
+		nodeMaxMemKey := fmt.Sprintf("%s/clusters/spec/node_max_memory/%s", broker.config.PathPrefix, clusterName)
+		s.Put(nodeNumKey, strconv.FormatInt(nodeNum, 10))
+		s.Put(nodeMaxMemKey, strconv.FormatInt(maxMemory, 10))
+
+		return nil
+	})
+
+	log.Printf("create cluster %v", response)
+
+	return err
 }
 
 func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange) (*Node, error) {

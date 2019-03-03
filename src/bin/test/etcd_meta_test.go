@@ -21,6 +21,12 @@ func prepareData(assert *assert.Assertions) {
 		Endpoints: endpoints,
 	})
 
+	opts := []clientv3.OpOption{
+		clientv3.WithPrefix(),
+	}
+	_, err = client.Delete(ctx, "/", opts...)
+	assert.NoError(err)
+
 	node1 := &broker.Node{
 		Address:      "127.0.0.1:7001",
 		ProxyAddress: "127.0.0.1:5299",
