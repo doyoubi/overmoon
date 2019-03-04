@@ -19,8 +19,9 @@ type MetaDataBroker interface {
 
 // MetaManipulationBroker abstracts the ability to manipulate clusters.
 type MetaManipulationBroker interface {
-	CreateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange) (*Node, error)
-	ReplaceNode(ctx context.Context, node *Node, currClusterEpoch int64) (*Node, error)
+	ReplaceNode(ctx context.Context, currClusterEpoch int64, node *Node) (*Node, error)
+	CreateCluster(ctx context.Context, clusterName string, nodeNum, maxMaxmemory int64) error
+	AddHost(ctx context.Context, address string, nodes []string) error
 }
 
 // SlotRange is the slot range of redis cluster. Start and End will be the same the single slot.

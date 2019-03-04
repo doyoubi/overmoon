@@ -59,14 +59,19 @@ func main() {
 		PathPrefix: config.pathPrefix,
 		FailureTTL: config.failureTTL,
 	}
-	broker, err := broker.NewEtcdMetaBrokerFromEndpoints(&brokerCfg, config.etcdNodes)
+	metaBroker, err := broker.NewEtcdMetaBrokerFromEndpoints(&brokerCfg, config.etcdNodes)
 	if err != nil {
-		fmt.Printf("Failed to create broker %s", err)
+		fmt.Printf("Failed to create meta broker %s", err)
+		return
+	}
+	maniBroker, err := broker.NewEtcdMetaManipulationBrokerFromEndpoints(&brokerCfg, config.etcdNodes)
+	if err != nil {
+		fmt.Printf("Failed to create manipulation broker %s", err)
 		return
 	}
 
 	ctx := context.Background()
 
-	proxy := service.NewHttpBrokerProxy(ctx, broker, "127.0.0.1:7799")
+	proxy := service.NewHttpBrokerProxy(ctx, metaBroker, maniBroker, "127.0.0.1:7799")
 	proxy.Serve()
 }
