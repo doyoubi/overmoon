@@ -3,15 +3,18 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/mvcc/mvccpb"
 )
 
-// TODO: Need to wrap each API into a transaction.
+var ErrTxnFailed = errors.New("txn failed")
+var ErrInvalidKeyNum = errors.New("invalid key numbers")
 
 // EtcdMetaBroker implements the MetaDataBroker interface and serves as a broker backend.
 type EtcdMetaBroker struct {
@@ -55,20 +58,59 @@ func (broker *EtcdMetaBroker) GetClusterNames(ctx context.Context) ([]string, er
 
 // GetCluster queries a cluster by name
 func (broker *EtcdMetaBroker) GetCluster(ctx context.Context, name string) (*Cluster, error) {
-	epoch, err := broker.GetEpochByCluster(ctx, name)
+	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, name)
+	clusterNodesKeyPrefix := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, name)
+
+	epoch, nodes, err := broker.getEpochAndNodes(ctx, clusterEpochKey, clusterNodesKeyPrefix)
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := broker.GetNodesByCluster(ctx, name)
-	if err != nil {
-		return nil, err
-	}
+
 	cluster := &Cluster{
 		Name:  name,
 		Epoch: epoch,
 		Nodes: nodes,
 	}
 	return cluster, nil
+}
+
+func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, epochKey, nodesKey string) (int64, []*Node, error) {
+	opts := []clientv3.OpOption{
+		clientv3.WithPrefix(),
+	}
+
+	response, err := broker.client.Txn(ctx).Then(
+		clientv3.OpGet(epochKey),
+		clientv3.OpGet(nodesKey, opts...),
+	).Commit()
+
+	if err != nil {
+		return 0, nil, err
+	}
+	if !response.Succeeded {
+		return 0, nil, ErrTxnFailed
+	}
+	if len(response.Responses) != 2 {
+		return 0, nil, ErrInvalidKeyNum
+	}
+
+	epochRes := response.Responses[0].GetResponseRange()
+	epoch, err := parseEpoch(epochRes.Kvs)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	nodesRes := response.Responses[1].GetResponseRange()
+	kvs, err := parseRangeResult(nodesKey, nodesRes.Kvs)
+	if err != nil {
+		return 0, nil, err
+	}
+	nodes, err := parseNodes(kvs)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return epoch, nodes, nil
 }
 
 // GetHostAddresses queries all hosts.
@@ -87,11 +129,9 @@ func (broker *EtcdMetaBroker) GetHostAddresses(ctx context.Context) ([]string, e
 
 // GetHost query the host by address
 func (broker *EtcdMetaBroker) GetHost(ctx context.Context, address string) (*Host, error) {
-	epoch, err := broker.GetEpochByHost(ctx, address)
-	if err != nil {
-		return nil, err
-	}
-	nodes, err := broker.GetNodesByHost(ctx, address)
+	hostEpochKey := fmt.Sprintf("%s/hosts/epoch/%s", broker.config.PathPrefix, address)
+	hostNodesKeyPrefix := fmt.Sprintf("%s/hosts/%s/nodes/", broker.config.PathPrefix, address)
+	epoch, nodes, err := broker.getEpochAndNodes(ctx, hostEpochKey, hostNodesKeyPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -146,16 +186,20 @@ func (broker *EtcdMetaBroker) GetEpochByHost(ctx context.Context, address string
 }
 
 func (broker *EtcdMetaBroker) GetEpoch(ctx context.Context, key string) (int64, error) {
-	// key := fmt.Sprintf("%s/hosts/epoch/%s", broker.config.PathPrefix, address)
 	res, err := broker.client.Get(ctx, key)
 	if err != nil {
 		return 0, err
 	}
+	return parseEpoch(res.Kvs)
+}
 
-	if len(res.Kvs) != 1 {
-		return 0, NotExists
+func parseEpoch(kvs []*mvccpb.KeyValue) (int64, error) {
+	if len(kvs) == 0 {
+		return 0, ErrNotExists
+	} else if len(kvs) > 1 {
+		return 0, ErrInvalidKeyNum
 	}
-	kv := res.Kvs[0]
+	kv := kvs[0]
 
 	epoch, err := strconv.ParseInt(string(kv.Value), 10, 64)
 	return epoch, err
@@ -168,6 +212,10 @@ func (broker *EtcdMetaBroker) GetNodesByCluster(ctx context.Context, name string
 	if err != nil {
 		return nil, err
 	}
+	return parseNodes(kvs)
+}
+
+func parseNodes(kvs map[string][]byte) ([]*Node, error) {
 	nodes := make([]*Node, 0, len(kvs))
 	for _, v := range kvs {
 		node := &Node{}
@@ -187,16 +235,7 @@ func (broker *EtcdMetaBroker) GetNodesByHost(ctx context.Context, address string
 	if err != nil {
 		return nil, err
 	}
-	nodes := make([]*Node, 0, len(kvs))
-	for _, v := range kvs {
-		node := &Node{}
-		err := json.Unmarshal(v, node)
-		if err != nil {
-			return nil, err
-		}
-		nodes = append(nodes, node)
-	}
-	return nodes, nil
+	return parseNodes(kvs)
 }
 
 func getRangeKeyPostfixAndValue(ctx context.Context, client *clientv3.Client, prefix string) (map[string][]byte, error) {
@@ -207,8 +246,12 @@ func getRangeKeyPostfixAndValue(ctx context.Context, client *clientv3.Client, pr
 	if err != nil {
 		return nil, err
 	}
+	return parseRangeResult(prefix, res.Kvs)
+}
+
+func parseRangeResult(prefix string, kvs []*mvccpb.KeyValue) (map[string][]byte, error) {
 	postfixes := make(map[string][]byte)
-	for _, item := range res.Kvs {
+	for _, item := range kvs {
 		key := string(item.Key)
 		if !strings.HasPrefix(key, prefix) {
 			return nil, fmt.Errorf("Unexpected key %s", key)

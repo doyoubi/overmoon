@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-var NotExists = errors.New("Missing key")
+var ErrNotExists = errors.New("Missing key")
 
 // MetaDataBroker abstracts the ability to check meta data and detect failures.
 type MetaDataBroker interface {
