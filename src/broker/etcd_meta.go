@@ -163,6 +163,7 @@ func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
+	// TODO: add min failure config
 	addresses := make([]string, 0, len(kv))
 	for k := range kv {
 		segs := strings.SplitN(string(k), "/", 2)

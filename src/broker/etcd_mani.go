@@ -89,7 +89,7 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 			End:   (i+1)*gap - 1,
 			Tag:   "",
 		}
-		_, err = broker.CreateNode(ctx, clusterName, epoch, []SlotRange{slots})
+		_, err = broker.CreateNode(ctx, clusterName, epoch, []SlotRange{slots}, MasterRole)
 		if err != nil {
 			return err
 		}
@@ -127,11 +127,11 @@ func (broker *EtcdMetaManipulationBroker) CreateBasicClusterMeta(ctx context.Con
 	return err
 }
 
-func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange) (*Node, error) {
-	return broker.allocateNode(ctx, clusterName, currClusterEpoch, slotRanges, broker.addNode)
+func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange, role Role) (*Node, error) {
+	return broker.allocateNode(ctx, clusterName, currClusterEpoch, slotRanges, role, broker.addNode)
 }
 
-func (broker *EtcdMetaManipulationBroker) allocateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange,
+func (broker *EtcdMetaManipulationBroker) allocateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange, role Role,
 	commitFunc func(context.Context, int64, *Node) error) (*Node, error) {
 
 	hostAddresses, err := broker.metaDataBroker.GetHostAddresses(ctx)
@@ -160,6 +160,7 @@ func (broker *EtcdMetaManipulationBroker) allocateNode(ctx context.Context, clus
 				ProxyAddress: hostAddress,
 				ClusterName:  clusterName,
 				Slots:        slotRanges,
+				Role:         role,
 			}
 			err := commitFunc(ctx, currClusterEpoch, node)
 			if err == ErrClusterEpochChanged {
@@ -217,7 +218,7 @@ func (broker *EtcdMetaManipulationBroker) DeleteNode(ctx context.Context, currCl
 }
 
 func (broker *EtcdMetaManipulationBroker) ReplaceNode(ctx context.Context, currClusterEpoch int64, node *Node) (*Node, error) {
-	return broker.allocateNode(ctx, node.ClusterName, currClusterEpoch, node.Slots,
+	return broker.allocateNode(ctx, node.ClusterName, currClusterEpoch, node.Slots, node.Role,
 		func(ctx context.Context, currClusterEpoch int64, newNode *Node) error {
 			return broker.swapNode(ctx, currClusterEpoch, node, newNode)
 		})

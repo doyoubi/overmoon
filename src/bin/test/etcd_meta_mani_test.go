@@ -90,7 +90,7 @@ func TestCreateAndDeleteNode(t *testing.T) {
 			Tag:   "",
 		},
 	}
-	node, err := b.CreateNode(ctx, clusterName, 1, slots)
+	node, err := b.CreateNode(ctx, clusterName, 1, slots, broker.MasterRole)
 	assert.NoError(err)
 	assert.NotNil(node)
 	assert.Equal(node.Address, "127.0.0.1:7001")
@@ -138,7 +138,7 @@ func TestReplaceNode(t *testing.T) {
 			Tag:   "",
 		},
 	}
-	node, err := b.CreateNode(ctx, clusterName, 1, slots)
+	node, err := b.CreateNode(ctx, clusterName, 1, slots, broker.MasterRole)
 	assert.NoError(err)
 	assert.NotNil(node)
 

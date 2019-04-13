@@ -34,6 +34,7 @@ func prepareData(assert *assert.Assertions) {
 		Slots: []broker.SlotRange{broker.SlotRange{
 			Start: 0, End: 5000, Tag: "",
 		}},
+		Role: "master",
 	}
 	node2 := &broker.Node{
 		Address:      "127.0.0.1:7002",
@@ -42,6 +43,7 @@ func prepareData(assert *assert.Assertions) {
 		Slots: []broker.SlotRange{broker.SlotRange{
 			Start: 5001, End: 10000, Tag: "",
 		}},
+		Role: "master",
 	}
 	node3 := &broker.Node{
 		Address:      "127.0.0.2:7003",
@@ -52,6 +54,7 @@ func prepareData(assert *assert.Assertions) {
 			broker.SlotRange{Start: 15001, End: 16382, Tag: ""},
 			broker.SlotRange{Start: 16383, End: 16383, Tag: ""},
 		},
+		Role: "master",
 	}
 	node1Str, err := json.Marshal(node1)
 	assert.NoError(err)

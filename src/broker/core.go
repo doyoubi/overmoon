@@ -31,12 +31,22 @@ type SlotRange struct {
 	Tag   string `json:"tag"`
 }
 
+// Role could be 'master' or 'replica'.
+type Role = string
+
+// MasterRole represents master node.
+const MasterRole = "master"
+
+// ReplicaRole represents replcia node.
+const ReplicaRole = "replica"
+
 // Node is redis node.
 type Node struct {
 	Address      string      `json:"address"`
 	ProxyAddress string      `json:"proxy_address"`
 	ClusterName  string      `json:"cluster_name"`
 	Slots        []SlotRange `json:"slots"`
+	Role         Role        `json:"role"`
 }
 
 // Cluster is the redis cluster we implement.
