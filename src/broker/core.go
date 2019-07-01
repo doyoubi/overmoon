@@ -27,9 +27,9 @@ type MetaManipulationBroker interface {
 
 // SlotRange is the slot range of redis cluster. Start and End will be the same the single slot.
 type SlotRange struct {
-	Start int64  `json:"start"`
-	End   int64  `json:"end"`
-	Tag   string `json:"tag"`
+	Start uint64       `json:"start"`
+	End   uint64       `json:"end"`
+	Tag   SlotRangeTag `json:"tag"`
 }
 
 // SlotRangeTag includes the migration type and migration metadata

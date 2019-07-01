@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -60,10 +59,15 @@ func (broker *EtcdMetaBroker) GetClusterNames(ctx context.Context) ([]string, er
 func (broker *EtcdMetaBroker) GetCluster(ctx context.Context, name string) (*Cluster, error) {
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, name)
 	clusterNodesKeyPrefix := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, name)
+	clusterSlotsKeyPrefix := fmt.Sprintf("%s/clusters/slots/%s/", broker.config.PathPrefix, name)
 
-	epoch, nodes, err := broker.getEpochAndNodes(ctx, clusterEpochKey, clusterNodesKeyPrefix)
+	epoch, nodes, err := broker.getEpochAndNodes(ctx, clusterEpochKey, clusterNodesKeyPrefix, clusterSlotsKeyPrefix)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, node := range nodes {
+		node.ClusterName = name
 	}
 
 	cluster := &Cluster{
@@ -74,7 +78,7 @@ func (broker *EtcdMetaBroker) GetCluster(ctx context.Context, name string) (*Clu
 	return cluster, nil
 }
 
-func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, epochKey, nodesKey string) (int64, []*Node, error) {
+func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, epochKey, nodesKey, clusterSlotsKeyPrefix string) (int64, []*Node, error) {
 	opts := []clientv3.OpOption{
 		clientv3.WithPrefix(),
 	}
@@ -82,6 +86,7 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, epochKey, no
 	response, err := broker.client.Txn(ctx).Then(
 		clientv3.OpGet(epochKey),
 		clientv3.OpGet(nodesKey, opts...),
+		clientv3.OpGet(clusterSlotsKeyPrefix, opts...),
 	).Commit()
 
 	if err != nil {
@@ -90,7 +95,7 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, epochKey, no
 	if !response.Succeeded {
 		return 0, nil, ErrTxnFailed
 	}
-	if len(response.Responses) != 2 {
+	if len(response.Responses) != 3 {
 		return 0, nil, ErrInvalidKeyNum
 	}
 
@@ -110,12 +115,27 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, epochKey, no
 		return 0, nil, err
 	}
 
+	slotsRes := response.Responses[1].GetResponseRange()
+	kvs, err = parseRangeResult(nodesKey, nodesRes.Kvs)
+	if err != nil {
+		return 0, nil, err
+	}
+	slots, err := parseSlots(kvs)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	nodes, err = addSlots(nodes, slots)
+	if err != nil {
+		return 0, nil, err
+	}
+
 	return epoch, nodes, nil
 }
 
 // GetHostAddresses queries all hosts.
 func (broker *EtcdMetaBroker) GetHostAddresses(ctx context.Context) ([]string, error) {
-	hostKeyPrefix := fmt.Sprintf("%s/hosts/epoch/", broker.config.PathPrefix)
+	hostKeyPrefix := fmt.Sprintf("%s/all_proxies/", broker.config.PathPrefix)
 	kvs, err := getRangeKeyPostfixAndValue(ctx, broker.client, hostKeyPrefix)
 	if err != nil {
 		return nil, err
@@ -129,7 +149,7 @@ func (broker *EtcdMetaBroker) GetHostAddresses(ctx context.Context) ([]string, e
 
 // GetHost query the host by address
 func (broker *EtcdMetaBroker) GetHost(ctx context.Context, address string) (*Host, error) {
-	hostEpochKey := fmt.Sprintf("%s/hosts/epoch/%s", broker.config.PathPrefix, address)
+	hostEpochKey := fmt.Sprintf("%s/all_hosts/epoch/%s", broker.config.PathPrefix, address)
 	hostNodesKeyPrefix := fmt.Sprintf("%s/hosts/%s/nodes/", broker.config.PathPrefix, address)
 	epoch, nodes, err := broker.getEpochAndNodes(ctx, hostEpochKey, hostNodesKeyPrefix)
 	if err != nil {
@@ -217,14 +237,98 @@ func (broker *EtcdMetaBroker) GetNodesByCluster(ctx context.Context, name string
 }
 
 func parseNodes(kvs map[string][]byte) ([]*Node, error) {
-	nodes := make([]*Node, 0, len(kvs))
-	for _, v := range kvs {
-		node := &Node{}
-		err := json.Unmarshal(v, node)
+	nodes := make([]*Node, len(kvs), len(kvs))
+	for k, v := range kvs {
+		etcdNodeMeta := &nodeMeta{}
+		err := etcdNodeMeta.decode(v)
 		if err != nil {
 			return nil, err
 		}
-		nodes = append(nodes, node)
+
+		role := MasterRole
+		if strings.HasPrefix(k, "master/") {
+			k = strings.TrimPrefix(k, "master/")
+		} else if strings.HasPrefix(k, "replica/") {
+			role = ReplicaRole
+			k = strings.TrimPrefix(k, "master/")
+		} else {
+			return nil, fmt.Errorf("invalid role type in path: %s", k)
+		}
+
+		proxyIndex, err := strconv.ParseUint(k, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
+		node := &Node{
+			Address:      etcdNodeMeta.NodeAddress,
+			ProxyAddress: etcdNodeMeta.ProxyAddress,
+			ClusterName:  "",  // initialized later
+			Slots:        nil, // initialized later
+			Role:         role,
+		}
+
+		nodeIndex := proxyIndex * 2
+		if role == ReplicaRole {
+			nodeIndex++
+		}
+
+		if nodes[nodeIndex] != nil {
+			return nil, fmt.Errorf("duplicated node index, proxy index: %d, node index: %d", nodeIndex, proxyIndex)
+		}
+		nodes[nodeIndex] = node
+	}
+	return nodes, nil
+}
+
+func parseSlots(kvs map[string][]byte) ([][]slotRangeMeta, error) {
+	slots := make([][]slotRangeMeta, len(kvs), len(kvs))
+	for k, v := range kvs {
+		etcdSlotsMeta := &slotsMeta{}
+		err := etcdSlotsMeta.decode(v)
+		if err != nil {
+			return nil, err
+		}
+
+		proxyIndex, err := strconv.ParseUint(k, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
+		if slots[proxyIndex] != nil {
+			return nil, fmt.Errorf("duplicated proxy index, proxy index: %d", proxyIndex)
+		}
+		slots[proxyIndex] = etcdSlotsMeta.Slots
+	}
+	return slots, nil
+}
+
+func addSlots(nodes []*Node, slots [][]slotRangeMeta) ([]*Node, error) {
+	if len(slots)*2 != len(nodes) {
+		return nil, fmt.Errorf("mismatch slots and nodes number, nodes: %d, slots: %d", len(nodes), len(slots))
+	}
+
+	for i, slotRangeMeta := range slots {
+		slotRanges := make([]SlotRange, 0, len(slotRangeMeta))
+		for _, meta := range slotRangeMeta {
+			srcMasterIndex := meta.Tag.Meta.SrcProxyIndex * 2
+			dstMasterIndex := meta.Tag.Meta.DstProxyIndex * 2
+			slotRanges = append(slotRanges, SlotRange{
+				Start: meta.Start,
+				End:   meta.End,
+				Tag: SlotRangeTag{
+					TagType: meta.Tag.TagType,
+					Meta: &MigrationMeta{
+						Epoch:           meta.Tag.Meta.Epoch,
+						SrcNodeAddress:  nodes[srcMasterIndex].Address,
+						SrcProxyAddress: nodes[srcMasterIndex].ProxyAddress,
+						DstNodeAddress:  nodes[dstMasterIndex].Address,
+						DstProxyAddress: nodes[dstMasterIndex].ProxyAddress,
+					},
+				},
+			})
+		}
+		nodes[2*i].Slots = slotRanges
 	}
 	return nodes, nil
 }

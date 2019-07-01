@@ -23,6 +23,9 @@
 /clusters/nodes/<master|replica>/<proxy_index> => {
     node_address: <string>,
     proxy_address: <string>,
+}
+
+/clusters/slots/<proxy_index> => {
     slots: [
         SlotRange{
             start: <int>,
@@ -35,7 +38,8 @@
                     epoch: <int>,
                 },
             },
-        }
+        },
+        ...
     ]
 }
 ```
