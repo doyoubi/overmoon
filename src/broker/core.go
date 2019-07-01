@@ -31,6 +31,21 @@ type SlotRange struct {
 	Tag   string `json:"tag"`
 }
 
+// SlotRangeTag includes the migration type and migration metadata
+type SlotRangeTag struct {
+	TagType string
+	Meta    MigrationMeta
+}
+
+// MigrationMeta includes the migration metadata
+type MigrationMeta struct {
+	Epoch           uint64 `json:"epoch"`
+	SrcProxyAddress string `json:"src_proxy_address"`
+	SrcNodeAddress  string `json:"src_node_address"`
+	DstProxyAddress string `json:"dst_proxy_address"`
+	DstNodeAddress  string `json:"dst_node_address"`
+}
+
 // Role could be 'master' or 'replica'.
 type Role = string
 
@@ -63,4 +78,5 @@ type Host struct {
 	Nodes   []*Node `json:"nodes"`
 }
 
+// MaxSlotNumber is specified by Redis Cluster
 const MaxSlotNumber = 16384

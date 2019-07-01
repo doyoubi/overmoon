@@ -161,3 +161,33 @@ func (broker *TxnBroker) addNodeToCluster(clusterName string, node *Node) error 
 	broker.stm.Put(clusterNodekey, string(jsPayload))
 	return nil
 }
+
+type txnBroker struct {
+	config *EtcdConfig
+	stm    conc.STM
+}
+
+func newTxnBroker(config *EtcdConfig, stm conc.STM) *txnBroker {
+	return &txnBroker{
+		config: config,
+		stm:    stm,
+	}
+}
+
+func (broker *txnBroker) getGlobalEpoch() (uint64, error) {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	epochStr := broker.stm.Get(globalEpochKey)
+	return strconv.ParseUint(epochStr, 10, 64)
+}
+
+func (broker *txnBroker) bumpGlobalEpoch() (uint64, error) {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	oldEpoch, err := broker.getGlobalEpoch()
+	if err != nil {
+		return 0, err
+	}
+
+	newEpochStr := strconv.FormatUint(oldEpoch+1, 10)
+	broker.stm.Put(globalEpochKey, newEpochStr)
+	return oldEpoch + 1, nil
+}
