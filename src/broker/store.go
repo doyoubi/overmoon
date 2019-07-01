@@ -26,10 +26,8 @@ type slotRangeMeta struct {
 	tag   slotRangeTagMeta
 }
 
-type migrationTagType string
-
 type slotRangeTagMeta struct {
-	tagType migrationTagType
+	tagType MigrationTagType
 	meta    migrationMeta
 }
 

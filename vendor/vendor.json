@@ -207,6 +207,12 @@
 			"revisionTime": "2019-02-08T07:56:42Z"
 		},
 		{
+			"checksumSHA1": "e2wLA5wbvUp9RtcpB5HIOaqUP7c=",
+			"path": "github.com/kinbiko/jsonassert",
+			"revision": "7a4d904683847d746e887e7ecd5f12d45afe13e2",
+			"revisionTime": "2019-06-28T20:11:55Z"
+		},
+		{
 			"checksumSHA1": "9CxtAyVNPsScpfghpxfapxMPniU=",
 			"path": "github.com/magiconair/properties",
 			"revision": "7757cc9fdb852f7579b24170bcacda2c7471bb6a",

@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 )
 
@@ -33,9 +34,12 @@ type SlotRange struct {
 
 // SlotRangeTag includes the migration type and migration metadata
 type SlotRangeTag struct {
-	TagType string
-	Meta    MigrationMeta
+	TagType MigrationTagType
+	Meta    *MigrationMeta
 }
+
+// MigrationTagType consists of "Migrating", "Importing", and "None"
+type MigrationTagType string
 
 // MigrationMeta includes the migration metadata
 type MigrationMeta struct {
@@ -80,3 +84,68 @@ type Host struct {
 
 // MaxSlotNumber is specified by Redis Cluster
 const MaxSlotNumber = 16384
+
+const (
+	// MigratingTag is for source node
+	MigratingTag MigrationTagType = "Migrating"
+	// ImportingTag is for destination node
+	ImportingTag MigrationTagType = "Importing"
+	// NoneTag is for stable slots
+	NoneTag MigrationTagType = "None"
+)
+
+type migratingSlotRangeTag struct {
+	Migrating *MigrationMeta `json:"Migrating"`
+}
+
+type importingSlotRangeTag struct {
+	Importing *MigrationMeta `json:"Importing"`
+}
+
+// MarshalJSON changes the json format of SlotRangeTag to the Rust Serde format.
+func (slotRangeTag *SlotRangeTag) MarshalJSON() ([]byte, error) {
+	switch slotRangeTag.TagType {
+	case MigratingTag:
+		return json.Marshal(&migratingSlotRangeTag{
+			Migrating: slotRangeTag.Meta,
+		})
+	case ImportingTag:
+		return json.Marshal(&importingSlotRangeTag{
+			Importing: slotRangeTag.Meta,
+		})
+	default:
+		return []byte(`"None"`), nil
+	}
+}
+
+var errInvalidDataFormat = errors.New("invalid data format")
+
+// UnmarshalJSON changes the json format of SlotRangeTag to the Rust Serde format.
+func (slotRangeTag *SlotRangeTag) UnmarshalJSON(data []byte) error {
+	migrating := &migratingSlotRangeTag{}
+	err := json.Unmarshal(data, migrating)
+
+	if err == nil && migrating.Migrating != nil {
+		slotRangeTag.TagType = MigratingTag
+		slotRangeTag.Meta = migrating.Migrating
+		return nil
+	}
+
+	importing := &importingSlotRangeTag{}
+	err = json.Unmarshal(data, importing)
+	if err == nil && importing.Importing != nil {
+		slotRangeTag.TagType = ImportingTag
+		slotRangeTag.Meta = importing.Importing
+		return nil
+	}
+
+	none := ""
+	err = json.Unmarshal(data, &none)
+	if err == nil && none == "None" {
+		slotRangeTag.TagType = NoneTag
+		slotRangeTag.Meta = nil
+		return nil
+	}
+
+	return errInvalidDataFormat
+}
