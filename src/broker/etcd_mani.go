@@ -94,11 +94,7 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 		return ErrInvalidNodesNum
 	}
 
-	proxyMetadata := broker.metaDataBroker.getAvailableProxies(ctx)
-	possiblyAvailableProxies := make([]string, 0)
-	for address := range proxyMetadata {
-		possiblyAvailableProxies = append(possiblyAvailableProxies, address)
-	}
+	possiblyAvailableProxies := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
 
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
@@ -246,23 +242,64 @@ func (broker *EtcdMetaManipulationBroker) DeleteNode(ctx context.Context, currCl
 	return err
 }
 
-func (broker *EtcdMetaManipulationBroker) ReplaceNode(ctx context.Context, currClusterEpoch int64, node *Node) (*Node, error) {
-	return nil, nil
-	// return broker.allocateNode(ctx, node.ClusterName, currClusterEpoch, node.Slots, node.Role,
-	// 	func(ctx context.Context, currClusterEpoch int64, newNode *Node) error {
-	// 		return broker.swapNode(ctx, currClusterEpoch, node, newNode)
-	// 	})
-}
-
-func (broker *EtcdMetaManipulationBroker) swapNode(ctx context.Context, currClusterEpoch int64, oldNode, newNode *Node) error {
-	// TODO: timeout and isolation level
-	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
-		return NewTxnBroker(broker.config, s).ReplaceNode(oldNode, newNode, currClusterEpoch)
-	})
-
-	if response != nil {
-		log.Printf("resp %v", response.Succeeded)
+// ReplaceProxy changes the proxy and return the new one.
+func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, address string) (*Host, error) {
+	possiblyAvailableProxies := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
+	_, proxy, err := broker.metaDataBroker.getProxyMetaFromEtcd(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	clusterName := proxy.ClusterName
+	if clusterName == "" {
+		return nil, fmt.Errorf("%s not in use", address)
 	}
 
-	return err
+	var newProxyAddress string
+
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+
+		globalEpoch, _, cluster, err := txn.getCluster(clusterName)
+		if err != nil {
+			return err
+		}
+
+		proxies, err := txn.consumeProxies(clusterName, 1, possiblyAvailableProxies)
+		if err != nil {
+			return err
+		}
+		if len(proxies) != 1 {
+			return fmt.Errorf("expected 1 proxy, got %d", len(proxies))
+		}
+		var newProxy *proxyMeta
+		for k, v := range proxies {
+			newProxyAddress = k
+			newProxy = v
+		}
+
+		exists := false
+		for i, node := range cluster.Nodes {
+			if node.ProxyAddress == address && i%2 == 0 {
+				node.ProxyAddress = newProxyAddress
+				node.NodeAddress = newProxy.NodeAddresses[0]
+			} else if node.ProxyAddress == address && i%2 == 1 {
+				node.ProxyAddress = newProxyAddress
+				node.NodeAddress = newProxy.NodeAddresses[0]
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			return fmt.Errorf("cluster %s does not include %s", clusterName, address)
+		}
+
+		return txn.updateCluster(clusterName, globalEpoch, cluster)
+	})
+
+	log.Printf("replace proxy response %v", response)
+	if err != nil {
+		return nil, err
+	}
+
+	return broker.metaDataBroker.GetHost(ctx, newProxyAddress)
 }

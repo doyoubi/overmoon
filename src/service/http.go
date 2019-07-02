@@ -38,7 +38,7 @@ func (proxy *HttpBrokerProxy) Serve() error {
 	r.GET("/api/failures", proxy.handleGetFailure)
 
 	r.POST("/api/clusters", proxy.handleAddCluster)
-	r.PUT("/api/clusters/nodes", proxy.handleReplaceNode)
+	r.POST("/api/proxies/:proxy_address/failover", proxy.handleReplaceNode)
 	r.POST("/api/hosts", proxy.handleAddHost)
 
 	return r.Run(proxy.address)
@@ -169,29 +169,17 @@ func (proxy *HttpBrokerProxy) handleAddCluster(c *gin.Context) {
 	c.String(200, "")
 }
 
-type replaceNodePayload struct {
-	ClusterEpoch int64        `json:"cluster_epoch"`
-	Node         *broker.Node `json:"node"`
-}
-
 // PUT /api/clusters/nodes
 func (proxy *HttpBrokerProxy) handleReplaceNode(c *gin.Context) {
-	var payload replaceNodePayload
-	err := c.BindJSON(&payload)
-	if err != nil {
-		c.JSON(400, gin.H{
-			"error": fmt.Sprintf("failed to get json payload %s", err),
-		})
-		return
-	}
-	node, err := proxy.maniBroker.ReplaceNode(proxy.ctx, payload.ClusterEpoch, payload.Node)
+	proxyAddress := c.Param("proxy_address")
+	host, err := proxy.maniBroker.ReplaceProxy(proxy.ctx, proxyAddress)
 	if err != nil {
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("%s", err),
 		})
 		return
 	}
-	c.JSON(200, node)
+	c.JSON(200, host)
 }
 
 type addHostPayload struct {

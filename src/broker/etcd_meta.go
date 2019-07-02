@@ -88,9 +88,9 @@ func (broker *EtcdMetaBroker) getClusterFromCache(ctx context.Context, name stri
 func (broker *EtcdMetaBroker) getClusterFromEtcd(ctx context.Context, name string) (uint64, *Cluster, error) {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, name)
-	clusterNodesKeyPrefix := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, name)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, name)
 
-	globalEpoch, epoch, nodes, err := broker.getEpochAndNodes(ctx, globalEpochKey, clusterEpochKey, clusterNodesKeyPrefix)
+	globalEpoch, epoch, nodes, err := broker.getEpochAndNodes(ctx, globalEpochKey, clusterEpochKey, clusterNodesKey)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -332,6 +332,15 @@ func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) map[strin
 		}
 	}
 	return proxies
+}
+
+func (broker *EtcdMetaBroker) getAvailableProxyAddresses(ctx context.Context) []string {
+	proxyMetadata := broker.getAvailableProxies(ctx)
+	possiblyAvailableProxies := make([]string, 0)
+	for address := range proxyMetadata {
+		possiblyAvailableProxies = append(possiblyAvailableProxies, address)
+	}
+	return possiblyAvailableProxies
 }
 
 func (broker *EtcdMetaBroker) getEpoch(ctx context.Context, key string) (uint64, error) {

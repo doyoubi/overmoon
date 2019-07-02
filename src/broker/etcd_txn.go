@@ -21,14 +21,6 @@ func NewTxnBroker(config *EtcdConfig, stm conc.STM) *TxnBroker {
 	}
 }
 
-func (broker *TxnBroker) ReplaceNode(oldNode, newNode *Node, currClusterEpoch int64) error {
-	err := broker.AddNode(newNode, currClusterEpoch)
-	if err != nil {
-		return err
-	}
-	return broker.RemoveNode(oldNode, currClusterEpoch+1)
-}
-
 func (broker *TxnBroker) RemoveNode(node *Node, currClusterEpoch int64) error {
 	err := broker.removeNodeWithoutBumping(node, currClusterEpoch)
 	if err != nil {
@@ -182,8 +174,10 @@ func (broker *TxnBroker) bumpGlobalEpochV2() (uint64, error) {
 	return newEpoch + 1, nil
 }
 
+// TODO: exclude failed proxies
 func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, possiblyFreeProxies []string) (map[string]*proxyMeta, error) {
-	tryNum := proxyNum * 2
+	// Etcd limits the operation number inside a transaction
+	const tryNum uint64 = 100
 
 	availableProxies := make(map[string]*proxyMeta)
 	for i, address := range possiblyFreeProxies {
@@ -258,5 +252,50 @@ func (broker *TxnBroker) createCluster(clusterName string, nodes []*nodeMeta) er
 	}
 	broker.stm.Put(clusterNodesKey, string(clusterData))
 
+	return nil
+}
+
+func (broker *TxnBroker) getCluster(clusterName string) (uint64, uint64, *clusterMeta, error) {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, clusterName)
+
+	globalEpochStr := broker.stm.Get(globalEpochKey)
+	clusterEpochStr := broker.stm.Get(clusterEpochKey)
+	clusterNodesStr := broker.stm.Get(clusterNodesKey)
+
+	globalEpoch, err := strconv.ParseUint(globalEpochStr, 10, 64)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	clusterEpoch, err := strconv.ParseUint(clusterEpochStr, 10, 64)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
+	cluster := &clusterMeta{}
+	err = cluster.decode([]byte(clusterNodesStr))
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
+	return globalEpoch, clusterEpoch, cluster, nil
+}
+
+func (broker *TxnBroker) updateCluster(clusterName string, oldGlobalEpoch uint64, cluster *clusterMeta) error {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, clusterName)
+
+	newGlobalEpoch := oldGlobalEpoch + 1
+	newGlobalEpochStr := strconv.FormatUint(newGlobalEpoch, 10)
+	broker.stm.Put(globalEpochKey, newGlobalEpochStr)
+	broker.stm.Put(clusterEpochKey, newGlobalEpochStr)
+
+	newClusterData, err := cluster.encode()
+	if err != nil {
+		return err
+	}
+	broker.stm.Put(clusterNodesKey, string(newClusterData))
 	return nil
 }
