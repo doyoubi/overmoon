@@ -26,6 +26,7 @@ type EtcdMetaBroker struct {
 	cache  *metaCache
 }
 
+// NewEtcdMetaBrokerFromEndpoints creates EtcdMetaBroker from endpoints
 func NewEtcdMetaBrokerFromEndpoints(config *EtcdConfig, endpoints []string) (*EtcdMetaBroker, error) {
 	cfg := clientv3.Config{
 		Endpoints:   endpoints,
@@ -88,7 +89,6 @@ func (broker *EtcdMetaBroker) getClusterFromEtcd(ctx context.Context, name strin
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, name)
 	clusterNodesKeyPrefix := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, name)
-	// clusterSlotsKeyPrefix := fmt.Sprintf("%s/clusters/slots/%s/", broker.config.PathPrefix, name)
 
 	globalEpoch, epoch, nodes, err := broker.getEpochAndNodes(ctx, globalEpochKey, clusterEpochKey, clusterNodesKeyPrefix)
 	if err != nil {
@@ -119,7 +119,6 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 		clientv3.OpGet(globalEpochKey),
 		clientv3.OpGet(epochKey),
 		clientv3.OpGet(nodesKey, opts...),
-		// clientv3.OpGet(slotsKey, opts...),
 	).Commit()
 
 	if err != nil {
@@ -148,10 +147,6 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	}
 
 	nodesRes := response.Responses[2].GetResponseRange()
-	// kvs, err := parseRangeResult(nodesKey, nodesRes.Kvs)
-	// if err != nil {
-	// 	return 0, 0, nil, err
-	// }
 	if len(nodesRes.Kvs) != 1 {
 		return 0, 0, nil, ErrInvalidKeyNum
 	}
@@ -159,21 +154,6 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	if err != nil {
 		return 0, 0, nil, err
 	}
-
-	// slotsRes := response.Responses[3].GetResponseRange()
-	// kvs, err = parseRangeResult(slotsKey, slotsRes.Kvs)
-	// if err != nil {
-	// 	return 0, 0, nil, err
-	// }
-	// slots, err := parseSlots(kvs)
-	// if err != nil {
-	// 	return 0, 0, nil, err
-	// }
-
-	// nodes, err = addSlots(nodes, slots)
-	// if err != nil {
-	// 	return 0, 0, nil, err
-	// }
 
 	return globalEpoch, epoch, nodes, nil
 }
@@ -211,6 +191,7 @@ func (broker *EtcdMetaBroker) getProxyFromEtcd(ctx context.Context, address stri
 		return host, nil
 	}
 
+	// Read them in two transaction is fine.
 	_, cluster, err := broker.getClusterFromCache(ctx, meta.ClusterName)
 	if err != nil {
 		return nil, err
@@ -383,25 +364,56 @@ func parseNodes(clusterData []byte) ([]*Node, error) {
 	nodes := make([]*Node, len(cluster.Nodes), len(cluster.Nodes))
 	slots := make([][]slotRangeMeta, len(cluster.Nodes)/2)
 	for nodeIndex, etcdNodeMeta := range cluster.Nodes {
+		node := &Node{
+			Address:      etcdNodeMeta.NodeAddress,
+			ProxyAddress: etcdNodeMeta.ProxyAddress,
+			ClusterName:  "",         // initialized later
+			Slots:        nil,        // initialized later
+			Repl:         ReplMeta{}, // initialized later
+		}
+
+		nodes = append(nodes, node)
+		if nodeIndex%2 == 0 {
+			slots = append(slots, etcdNodeMeta.Slots)
+		}
+	}
+	nodes, err = setRepl(nodes)
+	if err != nil {
+		return nil, err
+	}
+	return addSlots(nodes, slots)
+}
+
+func setRepl(nodes []*Node) ([]*Node, error) {
+	for nodeIndex, node := range nodes {
 		role := MasterRole
 		if nodeIndex%2 == 1 {
 			role = ReplicaRole
 		}
-
-		node := &Node{
-			Address:      etcdNodeMeta.NodeAddress,
-			ProxyAddress: etcdNodeMeta.ProxyAddress,
-			ClusterName:  "",  // initialized later
-			Slots:        nil, // initialized later
-			Role:         role,
+		var peerIndex int
+		switch nodeIndex % 4 {
+		case 0:
+			peerIndex = nodeIndex + 3
+		case 1:
+			peerIndex = nodeIndex + 1
+		case 2:
+			peerIndex = nodeIndex - 1
+		case 3:
+			peerIndex = nodeIndex - 3
 		}
-
-		nodes = append(nodes, node)
-		if role == MasterRole {
-			slots = append(slots, etcdNodeMeta.Slots)
+		if peerIndex < 0 || peerIndex >= len(nodes) {
+			return nil, errors.New("invalid node index when finding peer")
+		}
+		peer := nodes[peerIndex]
+		node.Repl = ReplMeta{
+			Role: role,
+			Peers: []ReplPeer{ReplPeer{
+				NodeAddress:  peer.Address,
+				ProxyAddress: peer.ProxyAddress,
+			}},
 		}
 	}
-	return addSlots(nodes, slots)
+	return nodes, nil
 }
 
 func addSlots(nodes []*Node, slots [][]slotRangeMeta) ([]*Node, error) {

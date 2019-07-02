@@ -22,12 +22,14 @@ var ErrHostNotExist = errors.New("host not exist")
 var ErrNodeNotAvailable = errors.New("node not available")
 var ErrNoAvailableResource = errors.New("no available resource")
 
+// EtcdMetaManipulationBroker is mainly for metadata modification
 type EtcdMetaManipulationBroker struct {
 	metaDataBroker *EtcdMetaBroker
 	config         *EtcdConfig
 	client         *clientv3.Client
 }
 
+// NewEtcdMetaManipulationBrokerFromEndpoints creates EtcdMetaManipulationBroker from endpoints
 func NewEtcdMetaManipulationBrokerFromEndpoints(config *EtcdConfig, endpoints []string) (*EtcdMetaManipulationBroker, error) {
 	cfg := clientv3.Config{
 		Endpoints:   endpoints,
@@ -114,7 +116,7 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 	if err != nil {
 		return err
 	}
-	log.Printf("response %s", response)
+	log.Printf("response %v", response)
 
 	return nil
 }
@@ -139,7 +141,6 @@ func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*pro
 			End:   end,
 			Tag:   slotRangeTagMeta{TagType: NoneTag},
 		}
-		// TODO: add replication info
 		master := &nodeMeta{
 			NodeAddress:  meta.NodeAddresses[0],
 			ProxyAddress: proxyAddress,
@@ -159,54 +160,54 @@ func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*pro
 	return nodes, nil
 }
 
-func (broker *EtcdMetaManipulationBroker) allocateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange, role Role,
-	commitFunc func(context.Context, int64, *Node) error) (*Node, error) {
+// func (broker *EtcdMetaManipulationBroker) allocateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange, role Role,
+// 	commitFunc func(context.Context, int64, *Node) error) (*Node, error) {
 
-	hostAddresses, err := broker.metaDataBroker.GetHostAddresses(ctx)
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("Get hosts %v", hostAddresses)
+// 	hostAddresses, err := broker.metaDataBroker.GetHostAddresses(ctx)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	log.Printf("Get hosts %v", hostAddresses)
 
-	for _, hostAddress := range hostAddresses {
-		nodes, err := broker.getAllNodesByHost(ctx, hostAddress)
-		if err != nil {
-			log.Printf("Failed to get nodes %s", err)
-			continue
-		}
-		log.Printf("Get nodes %v", nodes)
+// 	for _, hostAddress := range hostAddresses {
+// 		nodes, err := broker.getAllNodesByHost(ctx, hostAddress)
+// 		if err != nil {
+// 			log.Printf("Failed to get nodes %s", err)
+// 			continue
+// 		}
+// 		log.Printf("Get nodes %v", nodes)
 
-		// TODO: need to check the number of existing nodes on this host.
-		// TODO: shuffle the nodes to avoid collision
+// 		// TODO: need to check the number of existing nodes on this host.
+// 		// TODO: shuffle the nodes to avoid collision
 
-		for nodeAddress, cluster := range nodes {
-			if cluster != "" {
-				continue
-			}
-			node := &Node{
-				Address:      nodeAddress,
-				ProxyAddress: hostAddress,
-				ClusterName:  clusterName,
-				Slots:        slotRanges,
-				Role:         role,
-			}
-			err := commitFunc(ctx, currClusterEpoch, node)
-			if err == ErrClusterEpochChanged {
-				return nil, err
-			} else if err == ErrHostNotExist {
-				break
-			} else if err == ErrNodeNotAvailable {
-				continue
-			} else if err != nil {
-				log.Printf("unexpected error: %s", err)
-				return nil, err
-			}
-			return node, nil
-		}
-	}
+// 		for nodeAddress, cluster := range nodes {
+// 			if cluster != "" {
+// 				continue
+// 			}
+// 			node := &Node{
+// 				Address:      nodeAddress,
+// 				ProxyAddress: hostAddress,
+// 				ClusterName:  clusterName,
+// 				Slots:        slotRanges,
+// 				Role:         role,
+// 			}
+// 			err := commitFunc(ctx, currClusterEpoch, node)
+// 			if err == ErrClusterEpochChanged {
+// 				return nil, err
+// 			} else if err == ErrHostNotExist {
+// 				break
+// 			} else if err == ErrNodeNotAvailable {
+// 				continue
+// 			} else if err != nil {
+// 				log.Printf("unexpected error: %s", err)
+// 				return nil, err
+// 			}
+// 			return node, nil
+// 		}
+// 	}
 
-	return nil, ErrNoAvailableResource
-}
+// 	return nil, ErrNoAvailableResource
+// }
 
 func (broker *EtcdMetaManipulationBroker) addNode(ctx context.Context, currClusterEpoch int64, node *Node) error {
 	// TODO: timeout and isolation level
@@ -246,10 +247,11 @@ func (broker *EtcdMetaManipulationBroker) DeleteNode(ctx context.Context, currCl
 }
 
 func (broker *EtcdMetaManipulationBroker) ReplaceNode(ctx context.Context, currClusterEpoch int64, node *Node) (*Node, error) {
-	return broker.allocateNode(ctx, node.ClusterName, currClusterEpoch, node.Slots, node.Role,
-		func(ctx context.Context, currClusterEpoch int64, newNode *Node) error {
-			return broker.swapNode(ctx, currClusterEpoch, node, newNode)
-		})
+	return nil, nil
+	// return broker.allocateNode(ctx, node.ClusterName, currClusterEpoch, node.Slots, node.Role,
+	// 	func(ctx context.Context, currClusterEpoch int64, newNode *Node) error {
+	// 		return broker.swapNode(ctx, currClusterEpoch, node, newNode)
+	// 	})
 }
 
 func (broker *EtcdMetaManipulationBroker) swapNode(ctx context.Context, currClusterEpoch int64, oldNode, newNode *Node) error {

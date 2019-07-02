@@ -59,13 +59,25 @@ const MasterRole = "master"
 // ReplicaRole represents replcia node.
 const ReplicaRole = "replica"
 
+// ReplPeer stores the replication peer
+type ReplPeer struct {
+	NodeAddress  string `json:"node_address"`
+	ProxyAddress string `json:"proxy_address"`
+}
+
+// ReplMeta stores the replication metadata
+type ReplMeta struct {
+	Role  Role       `json:"role"`
+	Peers []ReplPeer `json:"peers"`
+}
+
 // Node is redis node.
 type Node struct {
 	Address      string      `json:"address"`
 	ProxyAddress string      `json:"proxy_address"`
 	ClusterName  string      `json:"cluster_name"`
 	Slots        []SlotRange `json:"slots"`
-	Role         Role        `json:"role"`
+	Repl         ReplMeta    `json:"repl"`
 }
 
 // Cluster is the redis cluster we implement.
