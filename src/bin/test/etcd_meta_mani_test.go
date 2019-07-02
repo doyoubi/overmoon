@@ -182,7 +182,7 @@ func TestCreateCluster(t *testing.T) {
 	err := b.AddHost(ctx, "127.0.0.1:5299", nodes1)
 	err = b.AddHost(ctx, "127.0.0.2:5299", nodes2)
 	assert.NoError(err)
-	err = b.CreateCluster(ctx, clusterName, 4, 1024)
+	err = b.CreateCluster(ctx, clusterName, 4)
 	assert.NoError(err)
 
 	cluster, err := mb.GetCluster(ctx, clusterName)

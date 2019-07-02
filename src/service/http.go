@@ -160,7 +160,7 @@ func (proxy *HttpBrokerProxy) handleAddCluster(c *gin.Context) {
 		return
 	}
 	err = proxy.maniBroker.CreateCluster(
-		proxy.ctx, cluster.ClusterName, cluster.NodeNumber, cluster.MaxMemory)
+		proxy.ctx, cluster.ClusterName, cluster.NodeNumber)
 	if err != nil {
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("%s", err),

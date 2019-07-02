@@ -63,11 +63,11 @@ func (broker *EtcdMetaBroker) GetClusterNames(ctx context.Context) ([]string, er
 
 // GetCluster queries a cluster by name
 func (broker *EtcdMetaBroker) GetCluster(ctx context.Context, name string) (*Cluster, error) {
-	_, cluster, err := broker.getClusterAndGlobalEpoch(ctx, name)
+	_, cluster, err := broker.getClusterFromCache(ctx, name)
 	return cluster, err
 }
 
-func (broker *EtcdMetaBroker) getClusterAndGlobalEpoch(ctx context.Context, name string) (uint64, *Cluster, error) {
+func (broker *EtcdMetaBroker) getClusterFromCache(ctx context.Context, name string) (uint64, *Cluster, error) {
 	cache := broker.cache.getCluster(name)
 	if cache != nil {
 		return 0, cache.cluster, nil
@@ -110,16 +110,16 @@ func (broker *EtcdMetaBroker) getClusterFromEtcd(ctx context.Context, name strin
 	return globalEpoch, cluster, nil
 }
 
-func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochKey, epochKey, nodesKey, clusterSlotsKeyPrefix string) (uint64, uint64, []*Node, error) {
+func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochKey, epochKey, nodesKey, slotsKey string) (uint64, uint64, []*Node, error) {
 	opts := []clientv3.OpOption{
 		clientv3.WithPrefix(),
 	}
 
 	response, err := broker.client.Txn(ctx).Then(
+		clientv3.OpGet(globalEpochKey),
 		clientv3.OpGet(epochKey),
 		clientv3.OpGet(nodesKey, opts...),
-		clientv3.OpGet(clusterSlotsKeyPrefix, opts...),
-		clientv3.OpGet(globalEpochKey),
+		clientv3.OpGet(slotsKey, opts...),
 	).Commit()
 
 	if err != nil {
@@ -158,7 +158,7 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	}
 
 	slotsRes := response.Responses[3].GetResponseRange()
-	kvs, err = parseRangeResult(nodesKey, nodesRes.Kvs)
+	kvs, err = parseRangeResult(slotsKey, slotsRes.Kvs)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -175,7 +175,7 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	return globalEpoch, epoch, nodes, nil
 }
 
-// GetHostAddresses queries all hosts.
+// GetHostAddresses queries all proxies.
 func (broker *EtcdMetaBroker) GetHostAddresses(ctx context.Context) ([]string, error) {
 	hostKeyPrefix := fmt.Sprintf("%s/all_proxies/", broker.config.PathPrefix)
 	kvs, err := getRangeKeyPostfixAndValue(ctx, broker.client, hostKeyPrefix)
@@ -195,12 +195,20 @@ func (broker *EtcdMetaBroker) GetHost(ctx context.Context, address string) (*Hos
 }
 
 func (broker *EtcdMetaBroker) getProxyFromEtcd(ctx context.Context, address string) (*Host, error) {
-	meta, err := broker.getProxyMetaFromEtcd(ctx, address)
+	globalEpoch, meta, err := broker.getProxyMetaFromCache(ctx, address)
 	if err != nil {
 		return nil, err
 	}
+	if meta.ClusterName == "" {
+		host := &Host{
+			Address: address,
+			Epoch:   globalEpoch,
+			Nodes:   []*Node{},
+		}
+		return host, nil
+	}
 
-	globalEpoch, cluster, err := broker.getClusterAndGlobalEpoch(ctx, meta.ClusterName)
+	_, cluster, err := broker.getClusterFromCache(ctx, meta.ClusterName)
 	if err != nil {
 		return nil, err
 	}
@@ -228,24 +236,60 @@ func (broker *EtcdMetaBroker) getProxyFromEtcd(ctx context.Context, address stri
 	return host, nil
 }
 
-func (broker *EtcdMetaBroker) getProxyMetaFromEtcd(ctx context.Context, address string) (*proxyMeta, error) {
-	proxyKey := fmt.Sprintf("%s/all_hosts/%s", broker.config.PathPrefix, address)
-	response, err := broker.client.Get(ctx, proxyKey)
-	if err != nil {
-		return nil, err
+func (broker *EtcdMetaBroker) getProxyMetaFromCache(ctx context.Context, address string) (uint64, *proxyMeta, error) {
+	cache := broker.cache.getProxy(address)
+	if cache != nil {
+		return cache.globalEpoch, cache.proxy, nil
 	}
 
-	if len(response.Kvs) != 1 {
-		return nil, ErrInvalidKeyNum
+	globalEpoch, proxy, err := broker.getProxyMetaFromEtcd(ctx, address)
+	if err != nil {
+		return 0, nil, err
 	}
-	proxyData := response.Kvs[0].Value
+	broker.cache.setProxy(address, &proxyCache{
+		globalEpoch: globalEpoch,
+		proxy:       proxy,
+	})
+	return globalEpoch, proxy, nil
+}
+
+func (broker *EtcdMetaBroker) getProxyMetaFromEtcd(ctx context.Context, address string) (uint64, *proxyMeta, error) {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	proxyKey := fmt.Sprintf("%s/all_proxies/%s", broker.config.PathPrefix, address)
+
+	response, err := broker.client.Txn(ctx).Then(
+		clientv3.OpGet(globalEpochKey),
+		clientv3.OpGet(proxyKey),
+	).Commit()
+
+	if err != nil {
+		return 0, nil, err
+	}
+	if !response.Succeeded {
+		return 0, nil, ErrTxnFailed
+	}
+	if len(response.Responses) != 2 {
+		return 0, nil, ErrInvalidKeyNum
+	}
+
+	globalEpochRes := response.Responses[0].GetResponseRange()
+	globalEpoch, err := parseEpoch(globalEpochRes.Kvs)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	proxyRes := response.Responses[0].GetResponseRange()
+	if len(proxyRes.Kvs) != 1 {
+		return 0, nil, ErrInvalidKeyNum
+	}
+	proxyData := proxyRes.Kvs[0].Value
 
 	meta := &proxyMeta{}
 	err = meta.decode(proxyData)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	return meta, nil
+	return globalEpoch, meta, nil
 }
 
 // AddFailure add failures reported by coordinators
@@ -295,9 +339,15 @@ func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error)
 	return addresses, nil
 }
 
-func (broker *EtcdMetaBroker) GetEpochByCluster(ctx context.Context, name string) (uint64, error) {
-	key := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, name)
-	return broker.getEpoch(ctx, key)
+func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) map[string]*proxyMeta {
+	allProxies := broker.cache.getAllProxy()
+	proxies := make(map[string]*proxyMeta)
+	for address, cache := range allProxies {
+		if cache.proxy.ClusterName == "" {
+			proxies[address] = cache.proxy
+		}
+	}
+	return proxies
 }
 
 func (broker *EtcdMetaBroker) getEpoch(ctx context.Context, key string) (uint64, error) {

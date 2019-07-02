@@ -21,7 +21,7 @@ type MetaDataBroker interface {
 // MetaManipulationBroker abstracts the ability to manipulate clusters.
 type MetaManipulationBroker interface {
 	ReplaceNode(ctx context.Context, currClusterEpoch int64, node *Node) (*Node, error)
-	CreateCluster(ctx context.Context, clusterName string, nodeNum, maxMaxmemory int64) error
+	CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error
 	AddHost(ctx context.Context, address string, nodes []string) error
 }
 
