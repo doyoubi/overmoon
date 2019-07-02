@@ -145,8 +145,7 @@ func (proxy *HttpBrokerProxy) handleGetFailure(c *gin.Context) {
 
 type clusterPayload struct {
 	ClusterName string `json:"cluster_name"`
-	NodeNumber  int64  `json:"node_number"`
-	MaxMemory   int64  `json:"max_memory"`
+	NodeNumber  uint64 `json:"node_number"`
 }
 
 // POST /api/clusters

@@ -227,7 +227,7 @@ func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, pos
 	return availableProxies, nil
 }
 
-func (broker *TxnBroker) createCluster(clusterName string, nodes []*Node) error {
+func (broker *TxnBroker) createCluster(clusterName string, nodes []*nodeMeta) error {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	globalEpochStr := broker.stm.Get(globalEpochKey)
 	if globalEpochStr == "" {
@@ -240,51 +240,23 @@ func (broker *TxnBroker) createCluster(clusterName string, nodes []*Node) error 
 		return err
 	}
 	newGlobalEpoch := globalEpoch + 1
+	newGlobalEpochStr := strconv.FormatUint(newGlobalEpoch, 10)
 
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
 	clusterEpoch := broker.stm.Get(clusterEpochKey)
 	if clusterEpoch != "" {
 		return ErrClusterExists
 	}
-	broker.stm.Put(clusterEpochKey, strconv.FormatUint(newGlobalEpoch, 10))
+	broker.stm.Put(clusterEpochKey, newGlobalEpochStr)
+	broker.stm.Put(globalEpochKey, newGlobalEpochStr)
 
-	for index, node := range nodes {
-		roleStr := "master"
-		if node.Role != MasterRole {
-			roleStr = "replica"
-		}
-		nodeKey := fmt.Sprintf("%s/clusters/nodes/%s/%d/%s",
-			broker.config.PathPrefix, clusterName, index/2, roleStr)
-		slotKey := fmt.Sprintf("%s/clusters/slots/%s/%d", broker.config.PathPrefix, clusterName, index/2)
-
-		meta := &nodeMeta{
-			NodeAddress:  node.Address,
-			ProxyAddress: node.ProxyAddress,
-		}
-		metaStr, err := meta.encode()
-		if err != nil {
-			return err
-		}
-
-		slotRanges := []slotRangeMeta{}
-		for _, sr := range node.Slots {
-			slotRanges = append(slotRanges, slotRangeMeta{
-				Start: sr.Start,
-				End:   sr.End,
-				Tag:   slotRangeTagMeta{TagType: NoneTag},
-			})
-		}
-		slots := &slotsMeta{
-			Slots: slotRanges,
-		}
-		slotsStr, err := slots.encode()
-		if err != nil {
-			return err
-		}
-
-		broker.stm.Put(nodeKey, string(metaStr))
-		broker.stm.Put(slotKey, string(slotsStr))
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", broker.config.PathPrefix, clusterName)
+	cluster := &clusterMeta{Nodes: nodes}
+	clusterData, err := cluster.encode()
+	if err != nil {
+		return err
 	}
+	broker.stm.Put(clusterNodesKey, string(clusterData))
 
 	return nil
 }

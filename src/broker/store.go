@@ -51,48 +51,39 @@ func (meta *failedProxyMeta) decode(data []byte) error {
 }
 
 type nodeMeta struct {
-	NodeAddress  string `json:"node_address"`
-	ProxyAddress string `json:"proxy_address"`
+	NodeAddress  string          `json:"node_address"`
+	ProxyAddress string          `json:"proxy_address"`
+	Slots        []slotRangeMeta `json:"slots"`
 }
 
-func (meta *nodeMeta) encode() ([]byte, error) {
+type clusterMeta struct {
+	Nodes []*nodeMeta `json:"nodes"`
+}
+
+func (meta *clusterMeta) encode() ([]byte, error) {
 	return json.Marshal(meta)
 }
 
-func (meta *nodeMeta) decode(data []byte) error {
+func (meta *clusterMeta) decode(data []byte) error {
 	err := json.Unmarshal(data, meta)
 	if err != nil {
 		return err
 	}
 
-	if meta.NodeAddress == "" || meta.ProxyAddress == "" {
-		return errMissingField
-	}
-	return nil
-}
-
-type slotsMeta struct {
-	Slots []slotRangeMeta `json:"slots"`
-}
-
-func (meta *slotsMeta) encode() ([]byte, error) {
-	return json.Marshal(meta)
-}
-
-func (meta *slotsMeta) decode(data []byte) error {
-	err := json.Unmarshal(data, meta)
-	if err != nil {
-		return err
-	}
-
-	for _, slot := range meta.Slots {
-		if slot.Tag.TagType == "" {
+	for _, node := range meta.Nodes {
+		if node.NodeAddress == "" || node.ProxyAddress == "" {
 			return errMissingField
 		}
-		if slot.Tag.TagType != NoneTag && slot.Tag.Meta == nil {
-			return errMissingField
+		for _, slot := range node.Slots {
+			if slot.Tag.TagType == "" {
+				return errMissingField
+			}
+			if slot.Tag.TagType != NoneTag && slot.Tag.Meta == nil {
+				return errMissingField
+			}
 		}
 	}
+
 	return nil
 }
 

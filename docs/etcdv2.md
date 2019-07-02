@@ -18,27 +18,26 @@
 
 /clusters/epoch/<cluster_name> => <int>
 
-/clusters/nodes/<cluster_name>/<proxy_index>/<master|replica> => {
-    node_address: <string>,
-    proxy_address: <string>,
-}
-
-/clusters/slots/<proxy_index> => {
-    slots: [
-        SlotRange{
-            start: <int>,
-            end: <int>,
-            tag: SlotRangeTag{
-                tag_type: "importing" | "migrating" | "None",
-                meta: => MigrationMeta{
-                    src_proxy_index: <int>,
-                    dst_proxy_index: <int>,
-                    epoch: <int>,
+/clusters/nodes/<cluster_name> => {
+    nodes: [{
+        node_address: <string>,
+        proxy_address: <string>,
+        slots: [
+            SlotRange{
+                start: <int>,
+                end: <int>,
+                tag: SlotRangeTag{
+                    tag_type: "importing" | "migrating" | "None",
+                    meta: => MigrationMeta{
+                        src_proxy_index: <int>,
+                        dst_proxy_index: <int>,
+                        epoch: <int>,
+                    },
                 },
             },
-        },
-        ...
-    ]
+            ...
+        ]
+    }]
 }
 ```
 

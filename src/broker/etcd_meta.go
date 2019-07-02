@@ -88,9 +88,9 @@ func (broker *EtcdMetaBroker) getClusterFromEtcd(ctx context.Context, name strin
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, name)
 	clusterNodesKeyPrefix := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, name)
-	clusterSlotsKeyPrefix := fmt.Sprintf("%s/clusters/slots/%s/", broker.config.PathPrefix, name)
+	// clusterSlotsKeyPrefix := fmt.Sprintf("%s/clusters/slots/%s/", broker.config.PathPrefix, name)
 
-	globalEpoch, epoch, nodes, err := broker.getEpochAndNodes(ctx, globalEpochKey, clusterEpochKey, clusterNodesKeyPrefix, clusterSlotsKeyPrefix)
+	globalEpoch, epoch, nodes, err := broker.getEpochAndNodes(ctx, globalEpochKey, clusterEpochKey, clusterNodesKeyPrefix)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -110,7 +110,7 @@ func (broker *EtcdMetaBroker) getClusterFromEtcd(ctx context.Context, name strin
 	return globalEpoch, cluster, nil
 }
 
-func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochKey, epochKey, nodesKey, slotsKey string) (uint64, uint64, []*Node, error) {
+func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochKey, epochKey, nodesKey string) (uint64, uint64, []*Node, error) {
 	opts := []clientv3.OpOption{
 		clientv3.WithPrefix(),
 	}
@@ -119,7 +119,7 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 		clientv3.OpGet(globalEpochKey),
 		clientv3.OpGet(epochKey),
 		clientv3.OpGet(nodesKey, opts...),
-		clientv3.OpGet(slotsKey, opts...),
+		// clientv3.OpGet(slotsKey, opts...),
 	).Commit()
 
 	if err != nil {
@@ -148,29 +148,32 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	}
 
 	nodesRes := response.Responses[2].GetResponseRange()
-	kvs, err := parseRangeResult(nodesKey, nodesRes.Kvs)
-	if err != nil {
-		return 0, 0, nil, err
+	// kvs, err := parseRangeResult(nodesKey, nodesRes.Kvs)
+	// if err != nil {
+	// 	return 0, 0, nil, err
+	// }
+	if len(nodesRes.Kvs) != 1 {
+		return 0, 0, nil, ErrInvalidKeyNum
 	}
-	nodes, err := parseNodes(kvs)
-	if err != nil {
-		return 0, 0, nil, err
-	}
-
-	slotsRes := response.Responses[3].GetResponseRange()
-	kvs, err = parseRangeResult(slotsKey, slotsRes.Kvs)
-	if err != nil {
-		return 0, 0, nil, err
-	}
-	slots, err := parseSlots(kvs)
+	nodes, err := parseNodes(nodesRes.Kvs[0].Value)
 	if err != nil {
 		return 0, 0, nil, err
 	}
 
-	nodes, err = addSlots(nodes, slots)
-	if err != nil {
-		return 0, 0, nil, err
-	}
+	// slotsRes := response.Responses[3].GetResponseRange()
+	// kvs, err = parseRangeResult(slotsKey, slotsRes.Kvs)
+	// if err != nil {
+	// 	return 0, 0, nil, err
+	// }
+	// slots, err := parseSlots(kvs)
+	// if err != nil {
+	// 	return 0, 0, nil, err
+	// }
+
+	// nodes, err = addSlots(nodes, slots)
+	// if err != nil {
+	// 	return 0, 0, nil, err
+	// }
 
 	return globalEpoch, epoch, nodes, nil
 }
@@ -370,28 +373,19 @@ func parseEpoch(kvs []*mvccpb.KeyValue) (uint64, error) {
 	return epoch, err
 }
 
-func parseNodes(kvs map[string][]byte) ([]*Node, error) {
-	nodes := make([]*Node, len(kvs), len(kvs))
-	for k, v := range kvs {
-		etcdNodeMeta := &nodeMeta{}
-		err := etcdNodeMeta.decode(v)
-		if err != nil {
-			return nil, err
-		}
+func parseNodes(clusterData []byte) ([]*Node, error) {
+	cluster := &clusterMeta{}
+	err := cluster.decode(clusterData)
+	if err != nil {
+		return nil, err
+	}
 
+	nodes := make([]*Node, len(cluster.Nodes), len(cluster.Nodes))
+	slots := make([][]slotRangeMeta, len(cluster.Nodes)/2)
+	for nodeIndex, etcdNodeMeta := range cluster.Nodes {
 		role := MasterRole
-		if strings.HasPrefix(k, "master/") {
-			k = strings.TrimPrefix(k, "master/")
-		} else if strings.HasPrefix(k, "replica/") {
+		if nodeIndex%2 == 1 {
 			role = ReplicaRole
-			k = strings.TrimPrefix(k, "master/")
-		} else {
-			return nil, fmt.Errorf("invalid role type in path: %s", k)
-		}
-
-		proxyIndex, err := strconv.ParseUint(k, 10, 64)
-		if err != nil {
-			return nil, err
 		}
 
 		node := &Node{
@@ -402,39 +396,12 @@ func parseNodes(kvs map[string][]byte) ([]*Node, error) {
 			Role:         role,
 		}
 
-		nodeIndex := proxyIndex * 2
-		if role == ReplicaRole {
-			nodeIndex++
+		nodes = append(nodes, node)
+		if role == MasterRole {
+			slots = append(slots, etcdNodeMeta.Slots)
 		}
-
-		if nodes[nodeIndex] != nil {
-			return nil, fmt.Errorf("duplicated node index, proxy index: %d, node index: %d", nodeIndex, proxyIndex)
-		}
-		nodes[nodeIndex] = node
 	}
-	return nodes, nil
-}
-
-func parseSlots(kvs map[string][]byte) ([][]slotRangeMeta, error) {
-	slots := make([][]slotRangeMeta, len(kvs), len(kvs))
-	for k, v := range kvs {
-		etcdSlotsMeta := &slotsMeta{}
-		err := etcdSlotsMeta.decode(v)
-		if err != nil {
-			return nil, err
-		}
-
-		proxyIndex, err := strconv.ParseUint(k, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-
-		if slots[proxyIndex] != nil {
-			return nil, fmt.Errorf("duplicated proxy index, proxy index: %d", proxyIndex)
-		}
-		slots[proxyIndex] = etcdSlotsMeta.Slots
-	}
-	return slots, nil
+	return addSlots(nodes, slots)
 }
 
 func addSlots(nodes []*Node, slots [][]slotRangeMeta) ([]*Node, error) {

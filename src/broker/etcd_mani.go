@@ -104,7 +104,7 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 		if err != nil {
 			return err
 		}
-		nodes, err := broker.genNodes(clusterName, proxies)
+		nodes, err := broker.genNodes(proxies)
 		if err != nil {
 			return err
 		}
@@ -119,11 +119,11 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 	return nil
 }
 
-func (broker *EtcdMetaManipulationBroker) genNodes(clusterName string, proxyMetadata map[string]*proxyMeta) ([]*Node, error) {
+func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*proxyMeta) ([]*nodeMeta, error) {
 	proxyNum := uint64(len(proxyMetadata))
 	nodeNum := proxyNum * 2
 	gap := (MaxSlotNumber + nodeNum - 1) / nodeNum
-	nodes := make([]*Node, 0, nodeNum)
+	nodes := make([]*nodeMeta, 0, nodeNum)
 
 	var index uint64
 	for proxyAddress, meta := range proxyMetadata {
@@ -134,25 +134,21 @@ func (broker *EtcdMetaManipulationBroker) genNodes(clusterName string, proxyMeta
 		if MaxSlotNumber < end {
 			end = MaxSlotNumber
 		}
-		slots := SlotRange{
+		slots := slotRangeMeta{
 			Start: index * gap,
 			End:   end,
-			Tag:   SlotRangeTag{TagType: NoneTag},
+			Tag:   slotRangeTagMeta{TagType: NoneTag},
 		}
 		// TODO: add replication info
-		master := &Node{
-			Address:      meta.NodeAddresses[0],
+		master := &nodeMeta{
+			NodeAddress:  meta.NodeAddresses[0],
 			ProxyAddress: proxyAddress,
-			ClusterName:  clusterName,
-			Slots:        []SlotRange{slots},
-			Role:         MasterRole,
+			Slots:        []slotRangeMeta{slots},
 		}
-		replica := &Node{
-			Address:      meta.NodeAddresses[1],
+		replica := &nodeMeta{
+			NodeAddress:  meta.NodeAddresses[1],
 			ProxyAddress: proxyAddress,
-			ClusterName:  clusterName,
-			Slots:        []SlotRange{},
-			Role:         ReplicaRole,
+			Slots:        []slotRangeMeta{},
 		}
 		nodes = append(nodes, master)
 		nodes = append(nodes, replica)
@@ -161,21 +157,6 @@ func (broker *EtcdMetaManipulationBroker) genNodes(clusterName string, proxyMeta
 	}
 
 	return nodes, nil
-}
-
-// // TODO: timeout
-// func (broker *EtcdMetaManipulationBroker) createBasicClusterMeta(ctx context.Context, clusterName string, proxyNum uint64, nodes []*Node) error {
-// 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
-// 		return nil
-// 	})
-
-// 	log.Printf("create cluster %v", response)
-
-// 	return err
-// }
-
-func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange, role Role) (*Node, error) {
-	return broker.allocateNode(ctx, clusterName, currClusterEpoch, slotRanges, role, broker.addNode)
 }
 
 func (broker *EtcdMetaManipulationBroker) allocateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange, role Role,
