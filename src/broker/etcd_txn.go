@@ -180,5 +180,3 @@ func (broker *TxnBroker) bumpGlobalEpochV2() (uint64, error) {
 	broker.stm.Put(globalEpochKey, newEpochStr)
 	return newEpoch + 1, nil
 }
-
-func (broker *TxnBroker) getProxyMeta(address string)

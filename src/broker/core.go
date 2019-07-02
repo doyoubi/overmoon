@@ -71,14 +71,14 @@ type Node struct {
 // Cluster is the redis cluster we implement.
 type Cluster struct {
 	Name  string  `json:"name"`
-	Epoch int64   `json:"epoch"`
+	Epoch uint64  `json:"epoch"`
 	Nodes []*Node `json:"nodes"`
 }
 
 // Host is the proxies on each physical machine.
 type Host struct {
 	Address string  `json:"address"`
-	Epoch   int64   `json:"epoch"`
+	Epoch   uint64  `json:"epoch"`
 	Nodes   []*Node `json:"nodes"`
 }
 

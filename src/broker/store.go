@@ -50,26 +50,6 @@ func (meta *failedProxyMeta) decode(data []byte) error {
 	return nil
 }
 
-type failureReportMeta struct {
-	ReportTime int64 `json:"report_time"`
-}
-
-func (meta *failureReportMeta) encode() ([]byte, error) {
-	return json.Marshal(meta)
-}
-
-func (meta *failureReportMeta) decode(data []byte) error {
-	err := json.Unmarshal(data, meta)
-	if err != nil {
-		return err
-	}
-
-	if meta.ReportTime == 0 {
-		return errMissingField
-	}
-	return nil
-}
-
 type nodeMeta struct {
 	NodeAddress  string `json:"node_address"`
 	ProxyAddress string `json:"proxy_address"`

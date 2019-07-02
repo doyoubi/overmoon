@@ -14,13 +14,11 @@
     node_addresses: [<string>, ...],
 }
 
-/failures/<proxy_address>/<reporter_id> => {
-    report_time: <timestamp>,
-}
+/failures/<proxy_address>/<reporter_id> => report_time: <timestamp>
 
 /clusters/epoch/<cluster_name> => <int>
 
-/clusters/nodes/<master|replica>/<proxy_index> => {
+/clusters/nodes/<cluster_name>/<proxy_index>/<master|replica> => {
     node_address: <string>,
     proxy_address: <string>,
 }
