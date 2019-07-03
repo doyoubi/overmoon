@@ -9,17 +9,17 @@ import (
 	"github.com/doyoubi/overmoon/src/broker"
 )
 
-// HttpBrokerProxy serves as a proxy
-type HttpBrokerProxy struct {
+// HTTPBrokerProxy serves as a proxy
+type HTTPBrokerProxy struct {
 	broker     broker.MetaDataBroker
 	maniBroker broker.MetaManipulationBroker
 	address    string
 	ctx        context.Context
 }
 
-// NewHttpBrokerProxy creates the HttpBrokerProxy.
-func NewHttpBrokerProxy(ctx context.Context, broker broker.MetaDataBroker, maniBroker broker.MetaManipulationBroker, address string) *HttpBrokerProxy {
-	return &HttpBrokerProxy{
+// NewHTTPBrokerProxy creates the HttpBrokerProxy.
+func NewHTTPBrokerProxy(ctx context.Context, broker broker.MetaDataBroker, maniBroker broker.MetaManipulationBroker, address string) *HTTPBrokerProxy {
+	return &HTTPBrokerProxy{
 		broker:     broker,
 		maniBroker: maniBroker,
 		address:    address,
@@ -28,7 +28,7 @@ func NewHttpBrokerProxy(ctx context.Context, broker broker.MetaDataBroker, maniB
 }
 
 // Serve start the http proxy server.
-func (proxy *HttpBrokerProxy) Serve() error {
+func (proxy *HTTPBrokerProxy) Serve() error {
 	r := gin.Default()
 	r.GET("/api/clusters/names", proxy.handleGetClusterNames)
 	r.GET("/api/clusters/name/:name", proxy.handleGetCluster)
@@ -45,7 +45,7 @@ func (proxy *HttpBrokerProxy) Serve() error {
 }
 
 // GET /api/clusters/names
-func (proxy *HttpBrokerProxy) handleGetClusterNames(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleGetClusterNames(c *gin.Context) {
 	names, err := proxy.broker.GetClusterNames(proxy.ctx)
 	if err != nil {
 		c.JSON(500, gin.H{
@@ -59,7 +59,7 @@ func (proxy *HttpBrokerProxy) handleGetClusterNames(c *gin.Context) {
 }
 
 // GET /api/clusters/name/:name
-func (proxy *HttpBrokerProxy) handleGetCluster(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleGetCluster(c *gin.Context) {
 	name := c.Param("name")
 	cluster, err := proxy.broker.GetCluster(proxy.ctx, name)
 	if err == broker.ErrNotExists {
@@ -80,7 +80,7 @@ func (proxy *HttpBrokerProxy) handleGetCluster(c *gin.Context) {
 }
 
 // GET /api/hosts/addresses
-func (proxy *HttpBrokerProxy) handleGetHostAddresses(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleGetHostAddresses(c *gin.Context) {
 	addresses, err := proxy.broker.GetHostAddresses(proxy.ctx)
 	if err != nil {
 		c.JSON(500, gin.H{
@@ -94,7 +94,7 @@ func (proxy *HttpBrokerProxy) handleGetHostAddresses(c *gin.Context) {
 }
 
 // GET /api/hosts/address/:address
-func (proxy *HttpBrokerProxy) handleGetHost(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleGetHost(c *gin.Context) {
 	address := c.Param("address")
 	host, err := proxy.broker.GetHost(proxy.ctx, address)
 	if err == broker.ErrNotExists {
@@ -115,7 +115,7 @@ func (proxy *HttpBrokerProxy) handleGetHost(c *gin.Context) {
 }
 
 // POST /api/failures/:address/:reportID
-func (proxy *HttpBrokerProxy) handleAddFailure(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleAddFailure(c *gin.Context) {
 	address := c.Param("address")
 	reportID := c.Param("reportID")
 
@@ -130,7 +130,7 @@ func (proxy *HttpBrokerProxy) handleAddFailure(c *gin.Context) {
 }
 
 // GET /api/failures
-func (proxy *HttpBrokerProxy) handleGetFailure(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleGetFailure(c *gin.Context) {
 	addresses, err := proxy.broker.GetFailures(proxy.ctx)
 	if err != nil {
 		c.JSON(500, gin.H{
@@ -149,7 +149,7 @@ type clusterPayload struct {
 }
 
 // POST /api/clusters
-func (proxy *HttpBrokerProxy) handleAddCluster(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleAddCluster(c *gin.Context) {
 	var cluster clusterPayload
 	err := c.BindJSON(&cluster)
 	if err != nil {
@@ -170,7 +170,7 @@ func (proxy *HttpBrokerProxy) handleAddCluster(c *gin.Context) {
 }
 
 // PUT /api/clusters/nodes
-func (proxy *HttpBrokerProxy) handleReplaceNode(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleReplaceNode(c *gin.Context) {
 	proxyAddress := c.Param("proxy_address")
 	host, err := proxy.maniBroker.ReplaceProxy(proxy.ctx, proxyAddress)
 	if err != nil {
@@ -188,7 +188,7 @@ type addHostPayload struct {
 }
 
 // POST /api/hosts
-func (proxy *HttpBrokerProxy) handleAddHost(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleAddHost(c *gin.Context) {
 	var payload addHostPayload
 	err := c.BindJSON(&payload)
 	if err != nil {

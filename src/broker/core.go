@@ -6,6 +6,7 @@ import (
 	"errors"
 )
 
+// ErrNotExists indicates that key does not exist.
 var ErrNotExists = errors.New("Missing key")
 
 // MetaDataBroker abstracts the ability to check meta data and detect failures.
