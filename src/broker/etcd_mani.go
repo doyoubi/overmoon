@@ -55,6 +55,23 @@ func NewEtcdMetaManipulationBroker(config *EtcdConfig, client *clientv3.Client) 
 	}, nil
 }
 
+// GetMetaBroker returens the EtcdMetaBroker
+func (broker *EtcdMetaManipulationBroker) GetMetaBroker() *EtcdMetaBroker {
+	return broker.metaDataBroker
+}
+
+// InitGlobalEpoch initializes the global_epoch if it does not exist
+func (broker *EtcdMetaManipulationBroker) InitGlobalEpoch() error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		return NewTxnBroker(broker.config, s).initGlobalEpoch()
+	})
+	if err != nil {
+		return err
+	}
+	log.Printf("response %v", response)
+	return nil
+}
+
 // AddHost adds new proxy and removes it from failed proxies
 func (broker *EtcdMetaManipulationBroker) AddHost(ctx context.Context, address string, nodes []string) error {
 	if len(nodes) != halfChunkSize {
@@ -75,8 +92,8 @@ func (broker *EtcdMetaManipulationBroker) AddHost(ctx context.Context, address s
 		proxyKey := fmt.Sprintf("%s/all_proxies/%s", broker.config.PathPrefix, address)
 		failedProxyKey := fmt.Sprintf("%s/failed_proxies/%s", broker.config.PathPrefix, address)
 
-		hostEpoch := s.Get(proxyKey)
-		if hostEpoch != "" {
+		hostData := s.Get(proxyKey)
+		if hostData != "" {
 			return ErrHostExists
 		}
 
@@ -94,7 +111,14 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 		return ErrInvalidNodesNum
 	}
 
-	possiblyAvailableProxies := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
+	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
+	if err != nil {
+		return err
+	}
+	if uint64(len(possiblyAvailableProxies)*halfChunkSize) < nodeNum {
+		log.Printf("only %d %d", len(possiblyAvailableProxies), nodeNum)
+		return ErrNodeNotAvailable
+	}
 
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
@@ -158,7 +182,10 @@ func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*Pro
 
 // ReplaceProxy changes the proxy and return the new one.
 func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, address string) (*Host, error) {
-	possiblyAvailableProxies := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
+	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
+	if err != nil {
+		return nil, err
+	}
 	_, proxy, err := broker.metaDataBroker.getProxyMetaFromEtcd(ctx, address)
 	if err != nil {
 		return nil, err

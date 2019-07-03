@@ -170,3 +170,12 @@ func (broker *TxnBroker) setFailed(proxyAddress string) error {
 	broker.stm.Put(failedProxyKey, string(data))
 	return nil
 }
+
+func (broker *TxnBroker) initGlobalEpoch() error {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	globalEpochStr := broker.stm.Get(globalEpochKey)
+	if globalEpochStr == "" {
+		broker.stm.Put(globalEpochKey, "0")
+	}
+	return nil
+}

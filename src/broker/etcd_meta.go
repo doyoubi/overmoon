@@ -319,7 +319,19 @@ func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error)
 	return addresses, nil
 }
 
-func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) map[string]*ProxyStore {
+func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) (map[string]*ProxyStore, error) {
+	// load all the data to cache
+	addresses, err := broker.GetHostAddresses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, address := range addresses {
+		_, err := broker.GetHost(ctx, address)
+		if err != nil {
+			log.Printf("failed to load proxy %s", address)
+		}
+	}
+
 	allProxies := broker.cache.getAllProxy()
 	proxies := make(map[string]*ProxyStore)
 	for address, cache := range allProxies {
@@ -327,16 +339,19 @@ func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) map[strin
 			proxies[address] = cache.proxy
 		}
 	}
-	return proxies
+	return proxies, nil
 }
 
-func (broker *EtcdMetaBroker) getAvailableProxyAddresses(ctx context.Context) []string {
-	proxyMetadata := broker.getAvailableProxies(ctx)
+func (broker *EtcdMetaBroker) getAvailableProxyAddresses(ctx context.Context) ([]string, error) {
+	proxyMetadata, err := broker.getAvailableProxies(ctx)
+	if err != nil {
+		return nil, err
+	}
 	possiblyAvailableProxies := make([]string, 0)
 	for address := range proxyMetadata {
 		possiblyAvailableProxies = append(possiblyAvailableProxies, address)
 	}
-	return possiblyAvailableProxies
+	return possiblyAvailableProxies, nil
 }
 
 func (broker *EtcdMetaBroker) getEpoch(ctx context.Context, key string) (uint64, error) {

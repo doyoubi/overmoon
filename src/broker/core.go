@@ -22,6 +22,8 @@ type MetaDataBroker interface {
 type MetaManipulationBroker interface {
 	ReplaceProxy(ctx context.Context, proxyAddress string) (*Host, error)
 	CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error
+
+	InitGlobalEpoch() error
 	AddHost(ctx context.Context, address string, nodes []string) error
 }
 
