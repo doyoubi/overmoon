@@ -1,0 +1,12 @@
+language: go
+
+go:
+  - 1.12.x
+
+script:
+  - env GO111MODULE=on make lint
+  - env GO111MODULE=on make test
+  - env GO111MODULE=on make build
+
+notifications:
+  email: false
