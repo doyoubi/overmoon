@@ -61,12 +61,12 @@ func (broker *EtcdMetaManipulationBroker) AddHost(ctx context.Context, address s
 		return ErrInvalidNodesNum
 	}
 
-	meta := &proxyMeta{
+	meta := &ProxyStore{
 		ProxyIndex:    0,
 		ClusterName:   "",
 		NodeAddresses: nodes,
 	}
-	metaValue, err := meta.encode()
+	metaValue, err := meta.Encode()
 	if err != nil {
 		return err
 	}
@@ -117,11 +117,11 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 	return nil
 }
 
-func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*proxyMeta) ([]*nodeMeta, error) {
+func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*ProxyStore) ([]*NodeStore, error) {
 	proxyNum := uint64(len(proxyMetadata))
 	nodeNum := proxyNum * 2
 	gap := (MaxSlotNumber + nodeNum - 1) / nodeNum
-	nodes := make([]*nodeMeta, 0, nodeNum)
+	nodes := make([]*NodeStore, 0, nodeNum)
 
 	var index uint64
 	for proxyAddress, meta := range proxyMetadata {
@@ -132,20 +132,20 @@ func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*pro
 		if MaxSlotNumber < end {
 			end = MaxSlotNumber
 		}
-		slots := slotRangeMeta{
+		slots := SlotRangeStore{
 			Start: index * gap,
 			End:   end,
-			Tag:   slotRangeTagMeta{TagType: NoneTag},
+			Tag:   SlotRangeTagStore{TagType: NoneTag},
 		}
-		master := &nodeMeta{
+		master := &NodeStore{
 			NodeAddress:  meta.NodeAddresses[0],
 			ProxyAddress: proxyAddress,
-			Slots:        []slotRangeMeta{slots},
+			Slots:        []SlotRangeStore{slots},
 		}
-		replica := &nodeMeta{
+		replica := &NodeStore{
 			NodeAddress:  meta.NodeAddresses[1],
 			ProxyAddress: proxyAddress,
-			Slots:        []slotRangeMeta{},
+			Slots:        []SlotRangeStore{},
 		}
 		nodes = append(nodes, master)
 		nodes = append(nodes, replica)
@@ -185,7 +185,7 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 		if len(proxies) != 1 {
 			return fmt.Errorf("expected 1 proxy, got %d", len(proxies))
 		}
-		var newProxy *proxyMeta
+		var newProxy *ProxyStore
 		for k, v := range proxies {
 			newProxyAddress = k
 			newProxy = v

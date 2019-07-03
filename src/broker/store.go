@@ -7,38 +7,47 @@ import (
 
 var errMissingField = errors.New("missing field")
 
-type proxyMeta struct {
+// ProxyStore stores the basic proxy metadata
+type ProxyStore struct {
 	ProxyIndex    uint64   `json:"proxy_index"`
 	ClusterName   string   `json:"cluster_name"`
 	NodeAddresses []string `json:"node_addresses"`
 }
 
-func (meta *proxyMeta) encode() ([]byte, error) {
+// Encode encodes json string
+func (meta *ProxyStore) Encode() ([]byte, error) {
 	return json.Marshal(meta)
 }
 
-func (meta *proxyMeta) decode(data []byte) error {
+// Decode decodes json string
+func (meta *ProxyStore) Decode(data []byte) error {
 	err := json.Unmarshal(data, meta)
 	if err != nil {
 		return err
 	}
 
 	// For simplicity, just ignore the case that meta.ProxyIndex == 0
-	if meta.ClusterName == "" || meta.NodeAddresses == nil {
+	if meta.NodeAddresses == nil {
+		return errMissingField
+	}
+	if meta.ClusterName == "" && meta.ProxyIndex > 0 {
 		return errMissingField
 	}
 	return nil
 }
 
-type failedProxyMeta struct {
+// FailedProxyStore stores
+type FailedProxyStore struct {
 	NodeAddresses []string `json:"node_addresses"`
 }
 
-func (meta *failedProxyMeta) encode() ([]byte, error) {
+// Encode encodes json string
+func (meta *FailedProxyStore) Encode() ([]byte, error) {
 	return json.Marshal(meta)
 }
 
-func (meta *failedProxyMeta) decode(data []byte) error {
+// Decode decodes json string
+func (meta *FailedProxyStore) Decode(data []byte) error {
 	err := json.Unmarshal(data, meta)
 	if err != nil {
 		return err
@@ -50,21 +59,25 @@ func (meta *failedProxyMeta) decode(data []byte) error {
 	return nil
 }
 
-type nodeMeta struct {
-	NodeAddress  string          `json:"node_address"`
-	ProxyAddress string          `json:"proxy_address"`
-	Slots        []slotRangeMeta `json:"slots"`
+// NodeStore stores the metadata of node
+type NodeStore struct {
+	NodeAddress  string           `json:"node_address"`
+	ProxyAddress string           `json:"proxy_address"`
+	Slots        []SlotRangeStore `json:"slots"`
 }
 
-type clusterMeta struct {
-	Nodes []*nodeMeta `json:"nodes"`
+// ClusterStore stores the nodes
+type ClusterStore struct {
+	Nodes []*NodeStore `json:"nodes"`
 }
 
-func (meta *clusterMeta) encode() ([]byte, error) {
+// Encode encodes json string
+func (meta *ClusterStore) Encode() ([]byte, error) {
 	return json.Marshal(meta)
 }
 
-func (meta *clusterMeta) decode(data []byte) error {
+// Decode decodes json string
+func (meta *ClusterStore) Decode(data []byte) error {
 	err := json.Unmarshal(data, meta)
 	if err != nil {
 		return err
@@ -87,18 +100,21 @@ func (meta *clusterMeta) decode(data []byte) error {
 	return nil
 }
 
-type slotRangeMeta struct {
-	Start uint64           `json:"start"`
-	End   uint64           `json:"end"`
-	Tag   slotRangeTagMeta `json:"tag"`
+// SlotRangeStore stores the slot range
+type SlotRangeStore struct {
+	Start uint64            `json:"start"`
+	End   uint64            `json:"end"`
+	Tag   SlotRangeTagStore `json:"tag"`
 }
 
-type slotRangeTagMeta struct {
-	TagType MigrationTagType `json:"tag_type"`
-	Meta    *migrationMeta   `json:"meta"`
+// SlotRangeTagStore stores the tag and migration meta
+type SlotRangeTagStore struct {
+	TagType MigrationTagType    `json:"tag_type"`
+	Meta    *MigrationMetaStore `json:"meta"`
 }
 
-type migrationMeta struct {
+// MigrationMetaStore stores the migration meta
+type MigrationMetaStore struct {
 	Epoch         uint64 `json:"epoch"`
 	SrcProxyIndex uint64 `json:"src_proxy_index"`
 	DstProxyIndex uint64 `json:"dst_proxy_index"`

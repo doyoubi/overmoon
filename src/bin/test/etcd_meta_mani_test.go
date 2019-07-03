@@ -34,23 +34,23 @@ func genManiBroker(assert *assert.Assertions) *broker.EtcdMetaManipulationBroker
 	return etcdBroker
 }
 
-func TestCreateBasicClusterMeta(t *testing.T) {
-	assert := assert.New(t)
-	initManiData(assert)
-	broker := genManiBroker(assert)
-	meta_broker := genBroker(assert)
-	ctx := context.Background()
+// func TestCreateBasicClusterMeta(t *testing.T) {
+// 	assert := assert.New(t)
+// 	initManiData(assert)
+// 	broker := genManiBroker(assert)
+// 	meta_broker := genBroker(assert)
+// 	ctx := context.Background()
 
-	clusterName := "test_mani_create_basic_meta"
-	err := broker.CreateBasicClusterMeta(ctx, clusterName, 1, 1024)
-	assert.NoError(err)
-	cluster, err := meta_broker.GetCluster(ctx, clusterName)
-	assert.NoError(err)
-	assert.NotNil(cluster)
-	assert.Equal(int64(1), cluster.Epoch)
-	assert.Equal(0, len(cluster.Nodes))
-	assert.Equal(clusterName, cluster.Name)
-}
+// 	clusterName := "test_mani_create_basic_meta"
+// 	err := broker.CreateBasicClusterMeta(ctx, clusterName, 1, 1024)
+// 	assert.NoError(err)
+// 	cluster, err := meta_broker.GetCluster(ctx, clusterName)
+// 	assert.NoError(err)
+// 	assert.NotNil(cluster)
+// 	assert.Equal(int64(1), cluster.Epoch)
+// 	assert.Equal(0, len(cluster.Nodes))
+// 	assert.Equal(clusterName, cluster.Name)
+// }
 
 func TestAddHost(t *testing.T) {
 	assert := assert.New(t)

@@ -9,7 +9,7 @@ type clusterCache struct {
 
 type proxyCache struct {
 	globalEpoch uint64
-	proxy       *proxyMeta
+	proxy       *ProxyStore
 }
 
 type metaCache struct {
@@ -74,7 +74,7 @@ func (cache *metaCache) getAllProxy() map[string]*proxyCache {
 		nodeNum := len(cache.proxy.NodeAddresses)
 		nodeAddresses := make([]string, nodeNum, nodeNum)
 		copy(nodeAddresses, cache.proxy.NodeAddresses)
-		proxy := &proxyMeta{
+		proxy := &ProxyStore{
 			ProxyIndex:    cache.proxy.ProxyIndex,
 			ClusterName:   cache.proxy.ClusterName,
 			NodeAddresses: nodeAddresses,

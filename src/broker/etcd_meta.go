@@ -88,7 +88,7 @@ func (broker *EtcdMetaBroker) getClusterFromCache(ctx context.Context, name stri
 func (broker *EtcdMetaBroker) getClusterFromEtcd(ctx context.Context, name string) (uint64, *Cluster, error) {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, name)
-	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, name)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", broker.config.PathPrefix, name)
 
 	globalEpoch, epoch, nodes, err := broker.getEpochAndNodes(ctx, globalEpochKey, clusterEpochKey, clusterNodesKey)
 	if err != nil {
@@ -111,14 +111,10 @@ func (broker *EtcdMetaBroker) getClusterFromEtcd(ctx context.Context, name strin
 }
 
 func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochKey, epochKey, nodesKey string) (uint64, uint64, []*Node, error) {
-	opts := []clientv3.OpOption{
-		clientv3.WithPrefix(),
-	}
-
 	response, err := broker.client.Txn(ctx).Then(
 		clientv3.OpGet(globalEpochKey),
 		clientv3.OpGet(epochKey),
-		clientv3.OpGet(nodesKey, opts...),
+		clientv3.OpGet(nodesKey),
 	).Commit()
 
 	if err != nil {
@@ -127,7 +123,7 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	if !response.Succeeded {
 		return 0, 0, nil, ErrTxnFailed
 	}
-	if len(response.Responses) != 4 {
+	if len(response.Responses) != 3 {
 		return 0, 0, nil, ErrInvalidKeyNum
 	}
 
@@ -174,10 +170,10 @@ func (broker *EtcdMetaBroker) GetHostAddresses(ctx context.Context) ([]string, e
 
 // GetHost query the host by address
 func (broker *EtcdMetaBroker) GetHost(ctx context.Context, address string) (*Host, error) {
-	return broker.getProxyFromEtcd(ctx, address)
+	return broker.getProxyFromCache(ctx, address)
 }
 
-func (broker *EtcdMetaBroker) getProxyFromEtcd(ctx context.Context, address string) (*Host, error) {
+func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address string) (*Host, error) {
 	globalEpoch, meta, err := broker.getProxyMetaFromCache(ctx, address)
 	if err != nil {
 		return nil, err
@@ -220,7 +216,7 @@ func (broker *EtcdMetaBroker) getProxyFromEtcd(ctx context.Context, address stri
 	return host, nil
 }
 
-func (broker *EtcdMetaBroker) getProxyMetaFromCache(ctx context.Context, address string) (uint64, *proxyMeta, error) {
+func (broker *EtcdMetaBroker) getProxyMetaFromCache(ctx context.Context, address string) (uint64, *ProxyStore, error) {
 	cache := broker.cache.getProxy(address)
 	if cache != nil {
 		return cache.globalEpoch, cache.proxy, nil
@@ -237,7 +233,7 @@ func (broker *EtcdMetaBroker) getProxyMetaFromCache(ctx context.Context, address
 	return globalEpoch, proxy, nil
 }
 
-func (broker *EtcdMetaBroker) getProxyMetaFromEtcd(ctx context.Context, address string) (uint64, *proxyMeta, error) {
+func (broker *EtcdMetaBroker) getProxyMetaFromEtcd(ctx context.Context, address string) (uint64, *ProxyStore, error) {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	proxyKey := fmt.Sprintf("%s/all_proxies/%s", broker.config.PathPrefix, address)
 
@@ -262,14 +258,14 @@ func (broker *EtcdMetaBroker) getProxyMetaFromEtcd(ctx context.Context, address 
 		return 0, nil, err
 	}
 
-	proxyRes := response.Responses[0].GetResponseRange()
+	proxyRes := response.Responses[1].GetResponseRange()
 	if len(proxyRes.Kvs) != 1 {
 		return 0, nil, ErrInvalidKeyNum
 	}
 	proxyData := proxyRes.Kvs[0].Value
 
-	meta := &proxyMeta{}
-	err = meta.decode(proxyData)
+	meta := &ProxyStore{}
+	err = meta.Decode(proxyData)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -323,9 +319,9 @@ func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error)
 	return addresses, nil
 }
 
-func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) map[string]*proxyMeta {
+func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) map[string]*ProxyStore {
 	allProxies := broker.cache.getAllProxy()
-	proxies := make(map[string]*proxyMeta)
+	proxies := make(map[string]*ProxyStore)
 	for address, cache := range allProxies {
 		if cache.proxy.ClusterName == "" {
 			proxies[address] = cache.proxy
@@ -364,14 +360,14 @@ func parseEpoch(kvs []*mvccpb.KeyValue) (uint64, error) {
 }
 
 func parseNodes(clusterData []byte) ([]*Node, error) {
-	cluster := &clusterMeta{}
-	err := cluster.decode(clusterData)
+	cluster := &ClusterStore{}
+	err := cluster.Decode(clusterData)
 	if err != nil {
 		return nil, err
 	}
 
-	nodes := make([]*Node, len(cluster.Nodes), len(cluster.Nodes))
-	slots := make([][]slotRangeMeta, len(cluster.Nodes)/2)
+	nodes := make([]*Node, 0, len(cluster.Nodes))
+	slots := make([][]SlotRangeStore, 0, len(cluster.Nodes)/2)
 	for nodeIndex, etcdNodeMeta := range cluster.Nodes {
 		node := &Node{
 			Address:      etcdNodeMeta.NodeAddress,
@@ -425,7 +421,7 @@ func setRepl(nodes []*Node) ([]*Node, error) {
 	return nodes, nil
 }
 
-func addSlots(nodes []*Node, slots [][]slotRangeMeta) ([]*Node, error) {
+func addSlots(nodes []*Node, slots [][]SlotRangeStore) ([]*Node, error) {
 	if len(slots)*2 != len(nodes) {
 		return nil, fmt.Errorf("mismatch slots and nodes number, nodes: %d, slots: %d", len(nodes), len(slots))
 	}
@@ -433,6 +429,14 @@ func addSlots(nodes []*Node, slots [][]slotRangeMeta) ([]*Node, error) {
 	for i, slotRangeMeta := range slots {
 		slotRanges := make([]SlotRange, 0, len(slotRangeMeta))
 		for _, meta := range slotRangeMeta {
+			if meta.Tag.TagType == NoneTag {
+				slotRanges = append(slotRanges, SlotRange{
+					Start: meta.Start,
+					End:   meta.End,
+					Tag:   SlotRangeTag{TagType: meta.Tag.TagType},
+				})
+				continue
+			}
 			srcMasterIndex := meta.Tag.Meta.SrcProxyIndex * 2
 			dstMasterIndex := meta.Tag.Meta.DstProxyIndex * 2
 			slotRanges = append(slotRanges, SlotRange{
@@ -451,6 +455,7 @@ func addSlots(nodes []*Node, slots [][]slotRangeMeta) ([]*Node, error) {
 			})
 		}
 		nodes[2*i].Slots = slotRanges
+		nodes[2*i+1].Slots = []SlotRange{}
 	}
 	return nodes, nil
 }

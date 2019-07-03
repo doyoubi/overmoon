@@ -21,11 +21,11 @@ func NewTxnBroker(config *EtcdConfig, stm conc.STM) *TxnBroker {
 }
 
 // TODO: exclude failed proxies
-func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, possiblyFreeProxies []string) (map[string]*proxyMeta, error) {
+func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, possiblyFreeProxies []string) (map[string]*ProxyStore, error) {
 	// Etcd limits the operation number inside a transaction
 	const tryNum uint64 = 100
 
-	availableProxies := make(map[string]*proxyMeta)
+	availableProxies := make(map[string]*ProxyStore)
 	for i, address := range possiblyFreeProxies {
 		if uint64(len(availableProxies)) == proxyNum {
 			break
@@ -35,8 +35,8 @@ func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, pos
 		}
 		proxyKey := fmt.Sprintf("%s/all_proxies/%s", broker.config.PathPrefix, address)
 		proxyData := broker.stm.Get(proxyKey)
-		meta := &proxyMeta{}
-		err := meta.decode([]byte(proxyData))
+		meta := &ProxyStore{}
+		err := meta.Decode([]byte(proxyData))
 		if err != nil {
 			log.Printf("invalid proxy meta format: %s", proxyData)
 			continue
@@ -57,7 +57,7 @@ func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, pos
 		meta.ClusterName = clusterName
 		meta.ProxyIndex = proxyIndex
 		proxyIndex++
-		metaStr, err := meta.encode()
+		metaStr, err := meta.Encode()
 		if err != nil {
 			return nil, nil
 		}
@@ -67,7 +67,7 @@ func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, pos
 	return availableProxies, nil
 }
 
-func (broker *TxnBroker) createCluster(clusterName string, nodes []*nodeMeta) error {
+func (broker *TxnBroker) createCluster(clusterName string, nodes []*NodeStore) error {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	globalEpochStr := broker.stm.Get(globalEpochKey)
 	if globalEpochStr == "" {
@@ -91,8 +91,8 @@ func (broker *TxnBroker) createCluster(clusterName string, nodes []*nodeMeta) er
 	broker.stm.Put(globalEpochKey, newGlobalEpochStr)
 
 	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", broker.config.PathPrefix, clusterName)
-	cluster := &clusterMeta{Nodes: nodes}
-	clusterData, err := cluster.encode()
+	cluster := &ClusterStore{Nodes: nodes}
+	clusterData, err := cluster.Encode()
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func (broker *TxnBroker) createCluster(clusterName string, nodes []*nodeMeta) er
 	return nil
 }
 
-func (broker *TxnBroker) getCluster(clusterName string) (uint64, uint64, *clusterMeta, error) {
+func (broker *TxnBroker) getCluster(clusterName string) (uint64, uint64, *ClusterStore, error) {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
 	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, clusterName)
@@ -119,8 +119,8 @@ func (broker *TxnBroker) getCluster(clusterName string) (uint64, uint64, *cluste
 		return 0, 0, nil, err
 	}
 
-	cluster := &clusterMeta{}
-	err = cluster.decode([]byte(clusterNodesStr))
+	cluster := &ClusterStore{}
+	err = cluster.Decode([]byte(clusterNodesStr))
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -128,7 +128,7 @@ func (broker *TxnBroker) getCluster(clusterName string) (uint64, uint64, *cluste
 	return globalEpoch, clusterEpoch, cluster, nil
 }
 
-func (broker *TxnBroker) updateCluster(clusterName string, oldGlobalEpoch uint64, cluster *clusterMeta) error {
+func (broker *TxnBroker) updateCluster(clusterName string, oldGlobalEpoch uint64, cluster *ClusterStore) error {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
 	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, clusterName)
@@ -138,7 +138,7 @@ func (broker *TxnBroker) updateCluster(clusterName string, oldGlobalEpoch uint64
 	broker.stm.Put(globalEpochKey, newGlobalEpochStr)
 	broker.stm.Put(clusterEpochKey, newGlobalEpochStr)
 
-	newClusterData, err := cluster.encode()
+	newClusterData, err := cluster.Encode()
 	if err != nil {
 		return err
 	}
@@ -151,18 +151,18 @@ func (broker *TxnBroker) setFailed(proxyAddress string) error {
 	failedProxyKey := fmt.Sprintf("%s/failed_proxies/%s", broker.config.PathPrefix, proxyAddress)
 
 	proxyData := broker.stm.Get(proxyKey)
-	proxy := &proxyMeta{}
-	err := proxy.decode([]byte(proxyData))
+	proxy := &ProxyStore{}
+	err := proxy.Decode([]byte(proxyData))
 	if err != nil {
 		return err
 	}
 
 	broker.stm.Del(proxyKey)
 
-	failedProxy := failedProxyMeta{
+	failedProxy := FailedProxyStore{
 		NodeAddresses: proxy.NodeAddresses,
 	}
-	data, err := failedProxy.encode()
+	data, err := failedProxy.Encode()
 	if err != nil {
 		return err
 	}
