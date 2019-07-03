@@ -1,8 +1,8 @@
 package broker
 
 import (
-	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 
 	conc "go.etcd.io/etcd/clientv3/concurrency"
@@ -20,144 +20,162 @@ func NewTxnBroker(config *EtcdConfig, stm conc.STM) *TxnBroker {
 	}
 }
 
-func (broker *TxnBroker) ReplaceNode(oldNode, newNode *Node, currClusterEpoch int64) error {
-	err := broker.AddNode(newNode, currClusterEpoch)
+// TODO: exclude failed proxies
+func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, possiblyFreeProxies []string) (map[string]*ProxyStore, error) {
+	// Etcd limits the operation number inside a transaction
+	const tryNum uint64 = 100
+
+	availableProxies := make(map[string]*ProxyStore)
+	for i, address := range possiblyFreeProxies {
+		if uint64(len(availableProxies)) == proxyNum {
+			break
+		}
+		if uint64(i) >= tryNum {
+			return nil, ErrNodeNotAvailable
+		}
+		proxyKey := fmt.Sprintf("%s/all_proxies/%s", broker.config.PathPrefix, address)
+		proxyData := broker.stm.Get(proxyKey)
+		meta := &ProxyStore{}
+		err := meta.Decode([]byte(proxyData))
+		if err != nil {
+			log.Printf("invalid proxy meta format: %s", proxyData)
+			continue
+		}
+		if meta.ClusterName != "" {
+			continue
+		}
+		availableProxies[address] = meta
+	}
+
+	if uint64(len(availableProxies)) < proxyNum {
+		return nil, ErrNodeNotAvailable
+	}
+
+	var proxyIndex uint64
+	for address, meta := range availableProxies {
+		proxyKey := fmt.Sprintf("%s/all_proxies/%s", broker.config.PathPrefix, address)
+		meta.ClusterName = clusterName
+		meta.ProxyIndex = proxyIndex
+		proxyIndex++
+		metaStr, err := meta.Encode()
+		if err != nil {
+			return nil, nil
+		}
+		broker.stm.Put(proxyKey, string(metaStr))
+	}
+
+	return availableProxies, nil
+}
+
+func (broker *TxnBroker) createCluster(clusterName string, nodes []*NodeStore) error {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	globalEpochStr := broker.stm.Get(globalEpochKey)
+	if globalEpochStr == "" {
+		// TODO: make this safer by returning a error for the case that
+		// this key might be lost.
+		globalEpochStr = "0"
+	}
+	globalEpoch, err := strconv.ParseUint(globalEpochStr, 10, 64)
 	if err != nil {
 		return err
 	}
-	return broker.RemoveNode(oldNode, currClusterEpoch+1)
-}
+	newGlobalEpoch := globalEpoch + 1
+	newGlobalEpochStr := strconv.FormatUint(newGlobalEpoch, 10)
 
-func (broker *TxnBroker) RemoveNode(node *Node, currClusterEpoch int64) error {
-	err := broker.removeNodeWithoutBumping(node, currClusterEpoch)
-	if err != nil {
-		return err
-	}
-
-	broker.bumpClusterEpoch(node.ClusterName, currClusterEpoch)
-	hostEpoch := broker.getHostEpoch(node.Address)
-	if hostEpoch == "" {
-		return nil
-	}
-	hostEpochInt, err := strconv.ParseInt(hostEpoch, 10, 64)
-	if err != nil {
-		return err
-	}
-	broker.bumpHostEpoch(node.Address, hostEpochInt)
-
-	return nil
-}
-
-func (broker *TxnBroker) removeNodeWithoutBumping(node *Node, currClusterEpoch int64) error {
-	clusterName := node.ClusterName
-	host := node.ProxyAddress
-	nodeAddress := node.Address
-
-	// Also check existence
-	if err := broker.checkClusterEpoch(clusterName, currClusterEpoch); err != nil {
-		return err
-	}
-
-	hostNodeKey := fmt.Sprintf("%s/hosts/%s/nodes/%s", broker.config.PathPrefix, host, nodeAddress)
-	broker.stm.Del(hostNodeKey)
-	nodeClusterKey := fmt.Sprintf("%s/hosts/all_nodes/%s/%s", broker.config.PathPrefix, host, nodeAddress)
-	broker.stm.Put(nodeClusterKey, "")
-
-	clusterNodeKey := fmt.Sprintf("%s/clusters/nodes/%s/%s", broker.config.PathPrefix, clusterName, nodeAddress)
-	broker.stm.Del(clusterNodeKey)
-	return nil
-}
-
-func (broker *TxnBroker) AddNode(node *Node, currClusterEpoch int64) error {
-	clusterName := node.ClusterName
-	host := node.ProxyAddress
-	nodeAddress := node.Address
-
-	// Also check existence
-	if err := broker.checkClusterEpoch(clusterName, currClusterEpoch); err != nil {
-		return err
-	}
-
-	hostEpoch := broker.getHostEpoch(host)
-	if hostEpoch == "" {
-		return ErrHostNotExist
-	}
-
-	nodeOwnerCluster := fmt.Sprintf("%s/hosts/all_nodes/%s/%s", broker.config.PathPrefix, host, nodeAddress)
-	cluster := broker.stm.Get(nodeOwnerCluster)
-	if cluster != "" {
-		return ErrNodeNotAvailable
-	}
-
-	broker.stm.Put(nodeOwnerCluster, clusterName)
-
-	if err := broker.addNodeToHost(host, node); err != nil {
-		return err
-	}
-
-	if err := broker.addNodeToCluster(clusterName, node); err != nil {
-		return err
-	}
-
-	broker.bumpClusterEpoch(clusterName, currClusterEpoch)
-	hostEpochInt, err := strconv.ParseInt(hostEpoch, 10, 64)
-	if err != nil {
-		return err
-	}
-	broker.bumpHostEpoch(host, hostEpochInt)
-
-	return nil
-}
-
-func (broker *TxnBroker) checkClusterEpoch(clusterName string, currClusterEpoch int64) error {
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
-	// When it's empty there're two cases:
-	// - the cluster does not exist
-	// - the cluster are deleting its node
-	newClusterEpoch := broker.stm.Get(clusterEpochKey)
-	if newClusterEpoch != strconv.FormatInt(currClusterEpoch, 10) {
-		return ErrClusterEpochChanged
+	clusterEpoch := broker.stm.Get(clusterEpochKey)
+	if clusterEpoch != "" {
+		return ErrClusterExists
 	}
-	return nil
-}
+	broker.stm.Put(clusterEpochKey, newGlobalEpochStr)
+	broker.stm.Put(globalEpochKey, newGlobalEpochStr)
 
-func (broker *TxnBroker) clusterExist(clusterName string) bool {
-	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
-	epoch := broker.stm.Get(clusterEpochKey)
-	return epoch != ""
-}
-
-func (broker *TxnBroker) getHostEpoch(address string) string {
-	hostEpochKey := fmt.Sprintf("%s/hosts/epoch/%s", broker.config.PathPrefix, address)
-	return broker.stm.Get(hostEpochKey)
-}
-
-func (broker *TxnBroker) bumpClusterEpoch(clusterName string, currEpoch int64) {
-	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
-	broker.stm.Put(clusterEpochKey, strconv.FormatInt(currEpoch+1, 10))
-}
-
-func (broker *TxnBroker) bumpHostEpoch(address string, currEpoch int64) {
-	hostEpochKey := fmt.Sprintf("%s/hosts/epoch/%s", broker.config.PathPrefix, address)
-	broker.stm.Put(hostEpochKey, strconv.FormatInt(currEpoch+1, 10))
-}
-
-func (broker *TxnBroker) addNodeToHost(host string, node *Node) error {
-	hostNode := fmt.Sprintf("%s/hosts/%s/nodes/%s", broker.config.PathPrefix, host, node.Address)
-	jsPayload, err := json.Marshal(node)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", broker.config.PathPrefix, clusterName)
+	cluster := &ClusterStore{Nodes: nodes}
+	clusterData, err := cluster.Encode()
 	if err != nil {
 		return err
 	}
-	broker.stm.Put(hostNode, string(jsPayload))
+	broker.stm.Put(clusterNodesKey, string(clusterData))
+
 	return nil
 }
 
-func (broker *TxnBroker) addNodeToCluster(clusterName string, node *Node) error {
-	clusterNodekey := fmt.Sprintf("%s/clusters/nodes/%s/%s", broker.config.PathPrefix, clusterName, node.Address)
-	jsPayload, err := json.Marshal(node)
+func (broker *TxnBroker) getCluster(clusterName string) (uint64, uint64, *ClusterStore, error) {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, clusterName)
+
+	globalEpochStr := broker.stm.Get(globalEpochKey)
+	clusterEpochStr := broker.stm.Get(clusterEpochKey)
+	clusterNodesStr := broker.stm.Get(clusterNodesKey)
+
+	globalEpoch, err := strconv.ParseUint(globalEpochStr, 10, 64)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	clusterEpoch, err := strconv.ParseUint(clusterEpochStr, 10, 64)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
+	cluster := &ClusterStore{}
+	err = cluster.Decode([]byte(clusterNodesStr))
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
+	return globalEpoch, clusterEpoch, cluster, nil
+}
+
+func (broker *TxnBroker) updateCluster(clusterName string, oldGlobalEpoch uint64, cluster *ClusterStore) error {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, clusterName)
+
+	newGlobalEpoch := oldGlobalEpoch + 1
+	newGlobalEpochStr := strconv.FormatUint(newGlobalEpoch, 10)
+	broker.stm.Put(globalEpochKey, newGlobalEpochStr)
+	broker.stm.Put(clusterEpochKey, newGlobalEpochStr)
+
+	newClusterData, err := cluster.Encode()
 	if err != nil {
 		return err
 	}
-	broker.stm.Put(clusterNodekey, string(jsPayload))
+	broker.stm.Put(clusterNodesKey, string(newClusterData))
+	return nil
+}
+
+func (broker *TxnBroker) setFailed(proxyAddress string) error {
+	proxyKey := fmt.Sprintf("%s/all_proxies/%s", broker.config.PathPrefix, proxyAddress)
+	failedProxyKey := fmt.Sprintf("%s/failed_proxies/%s", broker.config.PathPrefix, proxyAddress)
+
+	proxyData := broker.stm.Get(proxyKey)
+	proxy := &ProxyStore{}
+	err := proxy.Decode([]byte(proxyData))
+	if err != nil {
+		return err
+	}
+
+	broker.stm.Del(proxyKey)
+
+	failedProxy := FailedProxyStore{
+		NodeAddresses: proxy.NodeAddresses,
+	}
+	data, err := failedProxy.Encode()
+	if err != nil {
+		return err
+	}
+
+	broker.stm.Put(failedProxyKey, string(data))
+	return nil
+}
+
+func (broker *TxnBroker) initGlobalEpoch() error {
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
+	globalEpochStr := broker.stm.Get(globalEpochKey)
+	if globalEpochStr == "" {
+		broker.stm.Put(globalEpochKey, "0")
+	}
 	return nil
 }

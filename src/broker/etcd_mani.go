@@ -5,26 +5,31 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strconv"
 	"time"
 
 	"go.etcd.io/etcd/clientv3"
 	conc "go.etcd.io/etcd/clientv3/concurrency"
 )
 
+const halfChunkSize = 2
+const chunkSize = halfChunkSize * 2
+
 var ErrClusterEpochChanged = errors.New("cluster epoch changed")
 var ErrClusterExists = errors.New("cluster already exists")
+var ErrInvalidNodesNum = errors.New("invalid node number")
 var ErrHostExists = errors.New("host already existed")
 var ErrHostNotExist = errors.New("host not exist")
 var ErrNodeNotAvailable = errors.New("node not available")
 var ErrNoAvailableResource = errors.New("no available resource")
 
+// EtcdMetaManipulationBroker is mainly for metadata modification
 type EtcdMetaManipulationBroker struct {
 	metaDataBroker *EtcdMetaBroker
 	config         *EtcdConfig
 	client         *clientv3.Client
 }
 
+// NewEtcdMetaManipulationBrokerFromEndpoints creates EtcdMetaManipulationBroker from endpoints
 func NewEtcdMetaManipulationBrokerFromEndpoints(config *EtcdConfig, endpoints []string) (*EtcdMetaManipulationBroker, error) {
 	cfg := clientv3.Config{
 		Endpoints:   endpoints,
@@ -50,189 +55,196 @@ func NewEtcdMetaManipulationBroker(config *EtcdConfig, client *clientv3.Client) 
 	}, nil
 }
 
-func (broker *EtcdMetaManipulationBroker) AddHost(ctx context.Context, address string, nodes []string) error {
+// GetMetaBroker returens the EtcdMetaBroker
+func (broker *EtcdMetaManipulationBroker) GetMetaBroker() *EtcdMetaBroker {
+	return broker.metaDataBroker
+}
+
+// InitGlobalEpoch initializes the global_epoch if it does not exist
+func (broker *EtcdMetaManipulationBroker) InitGlobalEpoch() error {
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
-		hostEpochKey := fmt.Sprintf("%s/hosts/epoch/%s", broker.config.PathPrefix, address)
-		hostEpoch := s.Get(hostEpochKey)
-		if hostEpoch != "" {
+		return NewTxnBroker(broker.config, s).initGlobalEpoch()
+	})
+	if err != nil {
+		return err
+	}
+	log.Printf("response %v", response)
+	return nil
+}
+
+// AddHost adds new proxy and removes it from failed proxies
+func (broker *EtcdMetaManipulationBroker) AddHost(ctx context.Context, address string, nodes []string) error {
+	if len(nodes) != halfChunkSize {
+		return ErrInvalidNodesNum
+	}
+
+	meta := &ProxyStore{
+		ProxyIndex:    0,
+		ClusterName:   "",
+		NodeAddresses: nodes,
+	}
+	metaValue, err := meta.Encode()
+	if err != nil {
+		return err
+	}
+
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		proxyKey := fmt.Sprintf("%s/all_proxies/%s", broker.config.PathPrefix, address)
+		failedProxyKey := fmt.Sprintf("%s/failed_proxies/%s", broker.config.PathPrefix, address)
+
+		hostData := s.Get(proxyKey)
+		if hostData != "" {
 			return ErrHostExists
 		}
 
-		s.Put(hostEpochKey, "1")
-		for _, nodeAddress := range nodes {
-			nodeAddressKey := fmt.Sprintf("%s/hosts/all_nodes/%s/%s", broker.config.PathPrefix, address, nodeAddress)
-			// empty string for not being used by any cluster
-			s.Put(nodeAddressKey, "")
-		}
-
+		s.Put(proxyKey, string(metaValue))
+		s.Del(failedProxyKey)
 		return nil
 	})
 	log.Printf("response %v", response)
 	return err
 }
 
-func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clusterName string, nodeNum, maxMemory int64) error {
-	err := broker.CreateBasicClusterMeta(ctx, clusterName, nodeNum, maxMemory)
+// CreateCluster creates a new cluster with specified node number
+func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error {
+	if nodeNum%chunkSize != 0 || nodeNum%halfChunkSize != 0 {
+		return ErrInvalidNodesNum
+	}
+
+	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
 	if err != nil {
 		return err
 	}
-
-	gap := MaxSlotNumber / nodeNum
-
-	for i := int64(0); i != nodeNum; i++ {
-		epoch, err := broker.metaDataBroker.GetEpochByCluster(ctx, clusterName)
-		if err != nil {
-			return err
-		}
-		slots := SlotRange{
-			Start: i * gap,
-			End:   (i+1)*gap - 1,
-			Tag:   "",
-		}
-		_, err = broker.CreateNode(ctx, clusterName, epoch, []SlotRange{slots}, MasterRole)
-		if err != nil {
-			return err
-		}
+	if uint64(len(possiblyAvailableProxies)*halfChunkSize) < nodeNum {
+		log.Printf("only %d %d", len(possiblyAvailableProxies), nodeNum)
+		return ErrNodeNotAvailable
 	}
+
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		proxies, err := txn.consumeProxies(clusterName, nodeNum/2, possiblyAvailableProxies)
+		if err != nil {
+			return err
+		}
+		nodes, err := broker.genNodes(proxies)
+		if err != nil {
+			return err
+		}
+		txn.createCluster(clusterName, nodes)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	log.Printf("response %v", response)
 
 	return nil
 }
 
-// TODO: timeout
-func (broker *EtcdMetaManipulationBroker) CreateBasicClusterMeta(ctx context.Context, clusterName string, nodeNum, maxMemory int64) error {
-	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
-		clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
-		clusterEpoch := s.Get(clusterEpochKey)
-		if clusterEpoch != "" {
-			return ErrClusterExists
+func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*ProxyStore) ([]*NodeStore, error) {
+	proxyNum := uint64(len(proxyMetadata))
+	nodeNum := proxyNum * 2
+	gap := (MaxSlotNumber + nodeNum - 1) / nodeNum
+	nodes := make([]*NodeStore, 0, nodeNum)
+
+	var index uint64
+	for proxyAddress, meta := range proxyMetadata {
+		if len(meta.NodeAddresses) != 2 {
+			return nil, ErrInvalidNodesNum
 		}
-
-		deletingClusterKey := fmt.Sprintf("%s/tasks/operation/remove_nodes/%s", broker.config.PathPrefix, clusterName)
-		deletingCluster := s.Get(deletingClusterKey)
-		if deletingCluster != "" {
-			return ErrClusterExists
+		end := (index+1)*gap - 1
+		if MaxSlotNumber < end {
+			end = MaxSlotNumber
 		}
+		slots := SlotRangeStore{
+			Start: index * gap,
+			End:   end,
+			Tag:   SlotRangeTagStore{TagType: NoneTag},
+		}
+		master := &NodeStore{
+			NodeAddress:  meta.NodeAddresses[0],
+			ProxyAddress: proxyAddress,
+			Slots:        []SlotRangeStore{slots},
+		}
+		replica := &NodeStore{
+			NodeAddress:  meta.NodeAddresses[1],
+			ProxyAddress: proxyAddress,
+			Slots:        []SlotRangeStore{},
+		}
+		nodes = append(nodes, master)
+		nodes = append(nodes, replica)
 
-		s.Put(clusterEpochKey, "1")
-		nodeNumKey := fmt.Sprintf("%s/clusters/spec/node_number/%s", broker.config.PathPrefix, clusterName)
-		nodeMaxMemKey := fmt.Sprintf("%s/clusters/spec/node_max_memory/%s", broker.config.PathPrefix, clusterName)
-		s.Put(nodeNumKey, strconv.FormatInt(nodeNum, 10))
-		s.Put(nodeMaxMemKey, strconv.FormatInt(maxMemory, 10))
+		index++
+	}
 
-		return nil
-	})
-
-	log.Printf("create cluster %v", response)
-
-	return err
+	return nodes, nil
 }
 
-func (broker *EtcdMetaManipulationBroker) CreateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange, role Role) (*Node, error) {
-	return broker.allocateNode(ctx, clusterName, currClusterEpoch, slotRanges, role, broker.addNode)
-}
-
-func (broker *EtcdMetaManipulationBroker) allocateNode(ctx context.Context, clusterName string, currClusterEpoch int64, slotRanges []SlotRange, role Role,
-	commitFunc func(context.Context, int64, *Node) error) (*Node, error) {
-
-	hostAddresses, err := broker.metaDataBroker.GetHostAddresses(ctx)
+// ReplaceProxy changes the proxy and return the new one.
+func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, address string) (*Host, error) {
+	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Get hosts %v", hostAddresses)
+	_, proxy, err := broker.metaDataBroker.getProxyMetaFromEtcd(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	clusterName := proxy.ClusterName
+	if clusterName == "" {
+		return nil, fmt.Errorf("%s not in use", address)
+	}
 
-	for _, hostAddress := range hostAddresses {
-		nodes, err := broker.getAllNodesByHost(ctx, hostAddress)
+	var newProxyAddress string
+
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+
+		globalEpoch, _, cluster, err := txn.getCluster(clusterName)
 		if err != nil {
-			log.Printf("Failed to get nodes %s", err)
-			continue
+			return err
 		}
-		log.Printf("Get nodes %v", nodes)
 
-		// TODO: need to check the number of existing nodes on this host.
-		// TODO: shuffle the nodes to avoid collision
+		proxies, err := txn.consumeProxies(clusterName, 1, possiblyAvailableProxies)
+		if err != nil {
+			return err
+		}
+		if len(proxies) != 1 {
+			return fmt.Errorf("expected 1 proxy, got %d", len(proxies))
+		}
+		var newProxy *ProxyStore
+		for k, v := range proxies {
+			newProxyAddress = k
+			newProxy = v
+		}
 
-		for nodeAddress, cluster := range nodes {
-			if cluster != "" {
-				continue
-			}
-			node := &Node{
-				Address:      nodeAddress,
-				ProxyAddress: hostAddress,
-				ClusterName:  clusterName,
-				Slots:        slotRanges,
-				Role:         role,
-			}
-			err := commitFunc(ctx, currClusterEpoch, node)
-			if err == ErrClusterEpochChanged {
-				return nil, err
-			} else if err == ErrHostNotExist {
+		exists := false
+		for i, node := range cluster.Nodes {
+			if node.ProxyAddress == address && i%2 == 0 {
+				node.ProxyAddress = newProxyAddress
+				node.NodeAddress = newProxy.NodeAddresses[0]
+			} else if node.ProxyAddress == address && i%2 == 1 {
+				node.ProxyAddress = newProxyAddress
+				node.NodeAddress = newProxy.NodeAddresses[0]
+				exists = true
 				break
-			} else if err == ErrNodeNotAvailable {
-				continue
-			} else if err != nil {
-				log.Printf("unexpected error: %s", err)
-				return nil, err
 			}
-			return node, nil
 		}
-	}
+		if !exists {
+			return fmt.Errorf("cluster %s does not include %s", clusterName, address)
+		}
 
-	return nil, ErrNoAvailableResource
-}
-
-func (broker *EtcdMetaManipulationBroker) addNode(ctx context.Context, currClusterEpoch int64, node *Node) error {
-	// TODO: timeout and isolation level
-	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
-		return NewTxnBroker(broker.config, s).AddNode(node, currClusterEpoch)
+		err = txn.setFailed(address)
+		if err != nil {
+			return err
+		}
+		return txn.updateCluster(clusterName, globalEpoch, cluster)
 	})
 
-	log.Printf("resp %v", response.Succeeded)
-
-	return err
-}
-
-func (broker *EtcdMetaManipulationBroker) getAllNodesByHost(ctx context.Context, hostAddress string) (map[string]string, error) {
-	allNodesPrefix := fmt.Sprintf("%s/hosts/all_nodes/%s/", broker.config.PathPrefix, hostAddress)
-	kvs, err := getRangeKeyPostfixAndValue(ctx, broker.client, allNodesPrefix)
+	log.Printf("replace proxy response %v", response)
 	if err != nil {
 		return nil, err
 	}
-	nodeAddresses := make(map[string]string)
-	for k, v := range kvs {
-		nodeAddresses[k] = string(v)
-	}
-	return nodeAddresses, nil
-}
 
-func (broker *EtcdMetaManipulationBroker) DeleteNode(ctx context.Context, currClusterEpoch int64, node *Node) error {
-	// TODO: timeout and isolation level
-	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
-		return NewTxnBroker(broker.config, s).RemoveNode(node, currClusterEpoch)
-	})
-
-	if response != nil {
-		log.Printf("resp %v", response.Succeeded)
-	}
-
-	return err
-}
-
-func (broker *EtcdMetaManipulationBroker) ReplaceNode(ctx context.Context, currClusterEpoch int64, node *Node) (*Node, error) {
-	return broker.allocateNode(ctx, node.ClusterName, currClusterEpoch, node.Slots, node.Role,
-		func(ctx context.Context, currClusterEpoch int64, newNode *Node) error {
-			return broker.swapNode(ctx, currClusterEpoch, node, newNode)
-		})
-}
-
-func (broker *EtcdMetaManipulationBroker) swapNode(ctx context.Context, currClusterEpoch int64, oldNode, newNode *Node) error {
-	// TODO: timeout and isolation level
-	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
-		return NewTxnBroker(broker.config, s).ReplaceNode(oldNode, newNode, currClusterEpoch)
-	})
-
-	if response != nil {
-		log.Printf("resp %v", response.Succeeded)
-	}
-
-	return err
+	return broker.metaDataBroker.GetHost(ctx, newProxyAddress)
 }
