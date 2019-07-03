@@ -34,7 +34,7 @@ type EtcdMetaManipulationBroker struct {
 }
 
 // NewEtcdMetaManipulationBrokerFromEndpoints creates EtcdMetaManipulationBroker from endpoints
-func NewEtcdMetaManipulationBrokerFromEndpoints(config *EtcdConfig, endpoints []string) (*EtcdMetaManipulationBroker, error) {
+func NewEtcdMetaManipulationBrokerFromEndpoints(config *EtcdConfig, endpoints []string, metaDataBroker *EtcdMetaBroker) (*EtcdMetaManipulationBroker, error) {
 	cfg := clientv3.Config{
 		Endpoints:   endpoints,
 		DialTimeout: 5 * time.Second,
@@ -43,15 +43,11 @@ func NewEtcdMetaManipulationBrokerFromEndpoints(config *EtcdConfig, endpoints []
 	if err != nil {
 		return nil, err
 	}
-	return NewEtcdMetaManipulationBroker(config, client)
+	return NewEtcdMetaManipulationBroker(config, client, metaDataBroker)
 }
 
 // NewEtcdMetaManipulationBroker creates EtcdMetaManipulationBroker
-func NewEtcdMetaManipulationBroker(config *EtcdConfig, client *clientv3.Client) (*EtcdMetaManipulationBroker, error) {
-	metaDataBroker, err := NewEtcdMetaBroker(config, client)
-	if err != nil {
-		return nil, err
-	}
+func NewEtcdMetaManipulationBroker(config *EtcdConfig, client *clientv3.Client, metaDataBroker *EtcdMetaBroker) (*EtcdMetaManipulationBroker, error) {
 	return &EtcdMetaManipulationBroker{
 		metaDataBroker: metaDataBroker,
 		config:         config,
@@ -148,7 +144,7 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*ProxyStore) ([]*NodeStore, error) {
 	proxyNum := uint64(len(proxyMetadata))
 	nodeNum := proxyNum * 2
-	gap := (MaxSlotNumber + nodeNum - 1) / nodeNum
+	gap := (MaxSlotNumber + proxyNum - 1) / proxyNum
 	nodes := make([]*NodeStore, 0, nodeNum)
 
 	var index uint64
@@ -250,5 +246,5 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 		return nil, err
 	}
 
-	return broker.metaDataBroker.GetHost(ctx, newProxyAddress)
+	return broker.metaDataBroker.GetProxy(ctx, newProxyAddress)
 }

@@ -31,15 +31,15 @@ func NewHTTPBrokerProxy(ctx context.Context, broker broker.MetaDataBroker, maniB
 func (proxy *HTTPBrokerProxy) Serve() error {
 	r := gin.Default()
 	r.GET("/api/clusters/names", proxy.handleGetClusterNames)
-	r.GET("/api/clusters/name/:name", proxy.handleGetCluster)
-	r.GET("/api/hosts/addresses", proxy.handleGetHostAddresses)
-	r.GET("/api/hosts/address/:address", proxy.handleGetHost)
+	r.GET("/api/clusters/meta/:name", proxy.handleGetCluster)
+	r.GET("/api/proxies/addresses", proxy.handleGetProxyAddresses)
+	r.GET("/api/proxies/meta/:address", proxy.handleGetProxy)
 	r.POST("/api/failures/:address/:reportID", proxy.handleAddFailure)
 	r.GET("/api/failures", proxy.handleGetFailure)
 
 	r.POST("/api/clusters", proxy.handleAddCluster)
-	r.POST("/api/proxies/:proxy_address/failover", proxy.handleReplaceNode)
-	r.POST("/api/hosts", proxy.handleAddHost)
+	r.POST("/api/proxies/failover/:proxy_address", proxy.handleReplaceNode)
+	r.POST("/api/proxies/nodes", proxy.handleAddHost)
 
 	return r.Run(proxy.address)
 }
@@ -80,8 +80,8 @@ func (proxy *HTTPBrokerProxy) handleGetCluster(c *gin.Context) {
 }
 
 // GET /api/hosts/addresses
-func (proxy *HTTPBrokerProxy) handleGetHostAddresses(c *gin.Context) {
-	addresses, err := proxy.broker.GetHostAddresses(proxy.ctx)
+func (proxy *HTTPBrokerProxy) handleGetProxyAddresses(c *gin.Context) {
+	addresses, err := proxy.broker.GetProxyAddresses(proxy.ctx)
 	if err != nil {
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("%s", err),
@@ -94,9 +94,9 @@ func (proxy *HTTPBrokerProxy) handleGetHostAddresses(c *gin.Context) {
 }
 
 // GET /api/hosts/address/:address
-func (proxy *HTTPBrokerProxy) handleGetHost(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleGetProxy(c *gin.Context) {
 	address := c.Param("address")
-	host, err := proxy.broker.GetHost(proxy.ctx, address)
+	host, err := proxy.broker.GetProxy(proxy.ctx, address)
 	if err == broker.ErrNotExists {
 		c.JSON(200, gin.H{
 			"host": nil,
@@ -160,6 +160,12 @@ func (proxy *HTTPBrokerProxy) handleAddCluster(c *gin.Context) {
 	}
 	err = proxy.maniBroker.CreateCluster(
 		proxy.ctx, cluster.ClusterName, cluster.NodeNumber)
+	if err == broker.ErrNoAvailableResource {
+		c.JSON(409, gin.H{
+			"error": fmt.Sprintf("%s", err),
+		})
+		return
+	}
 	if err != nil {
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("%s", err),
@@ -183,8 +189,8 @@ func (proxy *HTTPBrokerProxy) handleReplaceNode(c *gin.Context) {
 }
 
 type addHostPayload struct {
-	Address string   `json:"address"`
-	Nodes   []string `json:"nodes"`
+	ProxyAddress string   `json:"proxy_address"`
+	Nodes        []string `json:"nodes"`
 }
 
 // POST /api/hosts
@@ -198,10 +204,10 @@ func (proxy *HTTPBrokerProxy) handleAddHost(c *gin.Context) {
 		return
 	}
 	err = proxy.maniBroker.AddHost(
-		proxy.ctx, payload.Address, payload.Nodes)
+		proxy.ctx, payload.ProxyAddress, payload.Nodes)
 	if err == broker.ErrHostExists {
 		c.JSON(400, gin.H{
-			"error": fmt.Sprintf("%s already exists", payload.Address),
+			"error": fmt.Sprintf("%s already exists", payload.ProxyAddress),
 		})
 		return
 	}

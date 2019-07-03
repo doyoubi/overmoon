@@ -19,6 +19,12 @@ var ErrTxnFailed = errors.New("txn failed")
 // ErrInvalidKeyNum indicates unexpected key number.
 var ErrInvalidKeyNum = errors.New("invalid key numbers")
 
+// ErrNotExists indicates that key does not exist.
+var ErrNotExists = errors.New("missing key")
+
+// ErrGlobalEpochNotFound indicates that key does not exist.
+var ErrGlobalEpochNotFound = errors.New("global epoch not found")
+
 const failureMinReporter = 2
 const reportValidPeriod = 30
 
@@ -49,6 +55,24 @@ func NewEtcdMetaBroker(config *EtcdConfig, client *clientv3.Client) (*EtcdMetaBr
 		client: client,
 		cache:  newMetaCache(),
 	}, nil
+}
+
+// Serve runs the routine cleanup of cache
+func (broker *EtcdMetaBroker) Serve(ctx context.Context) error {
+	return broker.clearCache(ctx)
+}
+
+func (broker *EtcdMetaBroker) clearCache(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		broker.cache.clearAll()
+		time.Sleep(time.Second * time.Duration(2))
+	}
 }
 
 // GetClusterNames retrieves all the cluster names from etcd.
@@ -133,6 +157,9 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	globalEpochRes := response.Responses[0].GetResponseRange()
 	globalEpoch, err := parseEpoch(globalEpochRes.Kvs)
 	if err != nil {
+		if err == ErrNotExists {
+			return 0, 0, nil, ErrGlobalEpochNotFound
+		}
 		return 0, 0, nil, err
 	}
 
@@ -157,8 +184,8 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	return globalEpoch, epoch, nodes, nil
 }
 
-// GetHostAddresses queries all proxies.
-func (broker *EtcdMetaBroker) GetHostAddresses(ctx context.Context) ([]string, error) {
+// GetProxyAddresses queries all proxies.
+func (broker *EtcdMetaBroker) GetProxyAddresses(ctx context.Context) ([]string, error) {
 	hostKeyPrefix := fmt.Sprintf("%s/all_proxies/", broker.config.PathPrefix)
 	kvs, err := getRangeKeyPostfixAndValue(ctx, broker.client, hostKeyPrefix)
 	if err != nil {
@@ -171,8 +198,8 @@ func (broker *EtcdMetaBroker) GetHostAddresses(ctx context.Context) ([]string, e
 	return keys, nil
 }
 
-// GetHost query the host by address
-func (broker *EtcdMetaBroker) GetHost(ctx context.Context, address string) (*Host, error) {
+// GetProxy query the host by address
+func (broker *EtcdMetaBroker) GetProxy(ctx context.Context, address string) (*Host, error) {
 	return broker.getProxyFromCache(ctx, address)
 }
 
@@ -324,12 +351,12 @@ func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error)
 
 func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) (map[string]*ProxyStore, error) {
 	// load all the data to cache
-	addresses, err := broker.GetHostAddresses(ctx)
+	addresses, err := broker.GetProxyAddresses(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, address := range addresses {
-		_, err := broker.GetHost(ctx, address)
+		_, err := broker.GetProxy(ctx, address)
 		if err != nil {
 			log.Printf("failed to load proxy %s", address)
 		}

@@ -8,4 +8,5 @@ require (
 	github.com/spf13/viper v1.4.0
 	github.com/stretchr/testify v1.3.0
 	go.etcd.io/etcd v0.0.0-20190701223455-1f40b6642ff3
+	golang.org/x/sync v0.0.0-20181221193216-37e7f081c4d4
 )

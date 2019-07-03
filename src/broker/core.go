@@ -6,15 +6,12 @@ import (
 	"errors"
 )
 
-// ErrNotExists indicates that key does not exist.
-var ErrNotExists = errors.New("Missing key")
-
 // MetaDataBroker abstracts the ability to check meta data and detect failures.
 type MetaDataBroker interface {
 	GetClusterNames(ctx context.Context) ([]string, error)
 	GetCluster(ctx context.Context, name string) (*Cluster, error)
-	GetHostAddresses(ctx context.Context) ([]string, error)
-	GetHost(ctx context.Context, address string) (*Host, error)
+	GetProxyAddresses(ctx context.Context) ([]string, error)
+	GetProxy(ctx context.Context, address string) (*Host, error)
 	AddFailure(ctx context.Context, address string, reportID string) error
 	GetFailures(ctx context.Context) ([]string, error)
 }
