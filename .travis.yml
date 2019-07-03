@@ -5,6 +5,9 @@ go:
 
 before_install:
   - go get -u golang.org/x/lint/golint
+  - curl -L  https://github.com/coreos/etcd/releases/download/v3.3.13/etcd-v3.3.13-linux-amd64.tar.gz -o etcd-v3.3.13-linux-amd64.tar.gz
+  - tar xzvf etcd-v3.3.13-linux-amd64.tar.gz
+  - ./etcd-v3.3.13-linux-amd64/etcd &
 
 script:
   - env GO111MODULE=on make lint
