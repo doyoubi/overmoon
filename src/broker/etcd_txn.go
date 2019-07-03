@@ -8,11 +8,13 @@ import (
 	conc "go.etcd.io/etcd/clientv3/concurrency"
 )
 
+// TxnBroker implements some building block for transaction.
 type TxnBroker struct {
 	config *EtcdConfig
 	stm    conc.STM
 }
 
+// NewTxnBroker creates TxnBroker.
 func NewTxnBroker(config *EtcdConfig, stm conc.STM) *TxnBroker {
 	return &TxnBroker{
 		config: config,
@@ -31,7 +33,7 @@ func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, pos
 			break
 		}
 		if uint64(i) >= tryNum {
-			return nil, ErrNodeNotAvailable
+			return nil, ErrNoAvailableResource
 		}
 		proxyKey := fmt.Sprintf("%s/all_proxies/%s", broker.config.PathPrefix, address)
 		proxyData := broker.stm.Get(proxyKey)
@@ -48,7 +50,7 @@ func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, pos
 	}
 
 	if uint64(len(availableProxies)) < proxyNum {
-		return nil, ErrNodeNotAvailable
+		return nil, ErrNoAvailableResource
 	}
 
 	var proxyIndex uint64

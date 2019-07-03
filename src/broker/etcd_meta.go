@@ -13,7 +13,10 @@ import (
 	"go.etcd.io/etcd/mvcc/mvccpb"
 )
 
+// ErrTxnFailed indicates the transaction failed.
 var ErrTxnFailed = errors.New("txn failed")
+
+// ErrInvalidKeyNum indicates unexpected key number.
 var ErrInvalidKeyNum = errors.New("invalid key numbers")
 
 const failureMinReporter = 2

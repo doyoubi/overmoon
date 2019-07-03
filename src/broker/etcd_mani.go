@@ -14,12 +14,16 @@ import (
 const halfChunkSize = 2
 const chunkSize = halfChunkSize * 2
 
-var ErrClusterEpochChanged = errors.New("cluster epoch changed")
+// ErrClusterExists indicates the cluster has already existed.
 var ErrClusterExists = errors.New("cluster already exists")
+
+// ErrInvalidNodesNum indicates invalid node number.
 var ErrInvalidNodesNum = errors.New("invalid node number")
+
+// ErrHostExists indicates the proxy has already existed.
 var ErrHostExists = errors.New("host already existed")
-var ErrHostNotExist = errors.New("host not exist")
-var ErrNodeNotAvailable = errors.New("node not available")
+
+// ErrNoAvailableResource indicates no available resource.
 var ErrNoAvailableResource = errors.New("no available resource")
 
 // EtcdMetaManipulationBroker is mainly for metadata modification
@@ -117,7 +121,7 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 	}
 	if uint64(len(possiblyAvailableProxies)*halfChunkSize) < nodeNum {
 		log.Printf("only %d %d", len(possiblyAvailableProxies), nodeNum)
-		return ErrNodeNotAvailable
+		return ErrNoAvailableResource
 	}
 
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {

@@ -72,6 +72,6 @@ func main() {
 
 	ctx := context.Background()
 
-	proxy := service.NewHttpBrokerProxy(ctx, metaBroker, maniBroker, "127.0.0.1:7799")
+	proxy := service.NewHTTPBrokerProxy(ctx, metaBroker, maniBroker, "127.0.0.1:7799")
 	proxy.Serve()
 }
