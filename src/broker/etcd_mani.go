@@ -207,40 +207,8 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 			return err
 		}
 
-		proxies, err := txn.consumeProxies(clusterName, 1, possiblyAvailableProxies)
-		if err != nil {
-			return err
-		}
-		if len(proxies) != 1 {
-			return fmt.Errorf("expected 1 proxy, got %d", len(proxies))
-		}
-		var newProxy *ProxyStore
-		for k, v := range proxies {
-			newProxyAddress = k
-			newProxy = v
-		}
-
-		exists := false
-		for i, node := range cluster.Nodes {
-			if node.ProxyAddress == address && i%2 == 0 {
-				node.ProxyAddress = newProxyAddress
-				node.NodeAddress = newProxy.NodeAddresses[0]
-			} else if node.ProxyAddress == address && i%2 == 1 {
-				node.ProxyAddress = newProxyAddress
-				node.NodeAddress = newProxy.NodeAddresses[0]
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			return fmt.Errorf("cluster %s does not include %s", clusterName, address)
-		}
-
-		err = txn.setFailed(address)
-		if err != nil {
-			return err
-		}
-		return txn.updateCluster(clusterName, globalEpoch, cluster)
+		newProxyAddress, err = txn.replaceProxy(clusterName, address, globalEpoch, cluster, possiblyAvailableProxies)
+		return err
 	})
 
 	if err != nil {
