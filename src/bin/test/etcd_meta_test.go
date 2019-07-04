@@ -32,31 +32,35 @@ func prepareData(assert *assert.Assertions) {
 	node1 := &broker.NodeStore{
 		NodeAddress:  "127.0.0.1:7001",
 		ProxyAddress: "127.0.0.1:6001",
-		Slots: []broker.SlotRangeStore{broker.SlotRangeStore{
-			Start: 0, End: 10000, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag},
-		}},
 	}
 	node2 := &broker.NodeStore{
 		NodeAddress:  "127.0.0.1:7002",
 		ProxyAddress: "127.0.0.1:6001",
-		Slots:        []broker.SlotRangeStore{},
 	}
 	node3 := &broker.NodeStore{
 		NodeAddress:  "127.0.0.2:7003",
 		ProxyAddress: "127.0.0.2:6002",
-		Slots: []broker.SlotRangeStore{
-			broker.SlotRangeStore{Start: 10001, End: 15000, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
-			broker.SlotRangeStore{Start: 15001, End: 16382, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
-			broker.SlotRangeStore{Start: 16383, End: 16383, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
-		},
 	}
 	node4 := &broker.NodeStore{
 		NodeAddress:  "127.0.0.2:7004",
 		ProxyAddress: "127.0.0.2:6002",
-		Slots:        []broker.SlotRangeStore{},
+	}
+	chunk1 := &broker.NodeChunk{
+		RolePosition: broker.ChunkRoleNormalPosition,
+		Slots: [][]broker.SlotRangeStore{
+			[]broker.SlotRangeStore{broker.SlotRangeStore{
+				Start: 0, End: 10000, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag},
+			}},
+			[]broker.SlotRangeStore{
+				broker.SlotRangeStore{Start: 10001, End: 15000, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
+				broker.SlotRangeStore{Start: 15001, End: 16382, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
+				broker.SlotRangeStore{Start: 16383, End: 16383, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
+			},
+		},
+		Nodes: []*broker.NodeStore{node1, node2, node3, node4},
 	}
 	cluster := &broker.ClusterStore{
-		Nodes: []*broker.NodeStore{node1, node2, node3, node4},
+		Chunks: []*broker.NodeChunk{chunk1},
 	}
 	clusterStr, err := cluster.Encode()
 	assert.NoError(err)

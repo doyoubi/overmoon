@@ -70,7 +70,7 @@ func (txn *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, possib
 	return availableProxies, nil
 }
 
-func (txn *TxnBroker) createCluster(clusterName string, nodes []*NodeStore) error {
+func (txn *TxnBroker) createCluster(clusterName string, cluster *ClusterStore) error {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", txn.config.PathPrefix)
 	globalEpochStr := txn.stm.Get(globalEpochKey)
 	if globalEpochStr == "" {
@@ -94,7 +94,6 @@ func (txn *TxnBroker) createCluster(clusterName string, nodes []*NodeStore) erro
 	txn.stm.Put(globalEpochKey, newGlobalEpochStr)
 
 	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", txn.config.PathPrefix, clusterName)
-	cluster := &ClusterStore{Nodes: nodes}
 	clusterData, err := cluster.Encode()
 	if err != nil {
 		return err
@@ -200,14 +199,19 @@ func (txn *TxnBroker) replaceProxy(clusterName, failedProxyAddress string, globa
 	}
 
 	exists := false
-	for i, node := range cluster.Nodes {
-		if node.ProxyAddress == failedProxyAddress && i%2 == 0 {
-			node.ProxyAddress = newProxyAddress
-			node.NodeAddress = newProxy.NodeAddresses[0]
-		} else if node.ProxyAddress == failedProxyAddress && i%2 == 1 {
-			node.ProxyAddress = newProxyAddress
-			node.NodeAddress = newProxy.NodeAddresses[0]
-			exists = true
+	for _, chunk := range cluster.Chunks {
+		for i, node := range chunk.Nodes {
+			if node.ProxyAddress == failedProxyAddress && i%2 == 0 {
+				node.ProxyAddress = newProxyAddress
+				node.NodeAddress = newProxy.NodeAddresses[0]
+			} else if node.ProxyAddress == failedProxyAddress && i%2 == 1 {
+				node.ProxyAddress = newProxyAddress
+				node.NodeAddress = newProxy.NodeAddresses[0]
+				exists = true
+				break
+			}
+		}
+		if exists {
 			break
 		}
 	}
