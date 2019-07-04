@@ -167,7 +167,7 @@ func TestEtcdGetHosts(t *testing.T) {
 
 	ctx := context.Background()
 
-	addresses, err := etcdBroker.GetHostAddresses(ctx)
+	addresses, err := etcdBroker.GetProxyAddresses(ctx)
 	assert.Nil(err)
 	assert.NotNil(addresses)
 	assert.Equal(3, len(addresses))
@@ -177,7 +177,7 @@ func TestEtcdGetHosts(t *testing.T) {
 	assert.Equal("127.0.0.3:6003", addresses[2])
 }
 
-func TestEtcdGetHost(t *testing.T) {
+func TestEtcdGetProxy(t *testing.T) {
 	assert := assert.New(t)
 
 	prepareData(assert)
@@ -185,14 +185,14 @@ func TestEtcdGetHost(t *testing.T) {
 
 	ctx := context.Background()
 
-	host, err := etcdBroker.GetHost(ctx, "127.0.0.1:6001")
+	host, err := etcdBroker.GetProxy(ctx, "127.0.0.1:6001")
 	assert.Nil(err)
 	assert.NotNil(host)
 	assert.Equal(uint64(233), host.Epoch)
 	assert.Equal("127.0.0.1:6001", host.Address)
 	assert.Equal(2, len(host.Nodes))
 
-	host, err = etcdBroker.GetHost(ctx, "127.0.0.3:6003")
+	host, err = etcdBroker.GetProxy(ctx, "127.0.0.3:6003")
 	assert.Nil(err)
 	assert.NotNil(host)
 	assert.Equal(uint64(666), host.Epoch)

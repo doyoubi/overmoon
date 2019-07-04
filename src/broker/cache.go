@@ -86,3 +86,20 @@ func (cache *metaCache) getAllProxy() map[string]*proxyCache {
 	}
 	return m
 }
+
+func (cache *metaCache) clearAll() {
+	cache.clearProxy()
+	cache.clearCluster()
+}
+
+func (cache *metaCache) clearProxy() {
+	cache.proxiesLock.Lock()
+	defer cache.proxiesLock.Unlock()
+	cache.proxies = make(map[string]*proxyCache)
+}
+
+func (cache *metaCache) clearCluster() {
+	cache.clustersLock.Lock()
+	defer cache.clustersLock.Unlock()
+	cache.clusters = make(map[string]*clusterCache)
+}

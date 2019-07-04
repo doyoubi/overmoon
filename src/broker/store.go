@@ -2,7 +2,9 @@ package broker
 
 import (
 	"encoding/json"
-	"errors"
+
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 var errMissingField = errors.New("missing field")
@@ -16,22 +18,23 @@ type ProxyStore struct {
 
 // Encode encodes json string
 func (meta *ProxyStore) Encode() ([]byte, error) {
-	return json.Marshal(meta)
+	data, err := json.Marshal(meta)
+	return data, errors.WithStack(err)
 }
 
 // Decode decodes json string
 func (meta *ProxyStore) Decode(data []byte) error {
 	err := json.Unmarshal(data, meta)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 
 	// For simplicity, just ignore the case that meta.ProxyIndex == 0
 	if meta.NodeAddresses == nil {
-		return errMissingField
+		return errors.WithStack(errMissingField)
 	}
 	if meta.ClusterName == "" && meta.ProxyIndex > 0 {
-		return errMissingField
+		return errors.WithStack(errMissingField)
 	}
 	return nil
 }
@@ -43,18 +46,19 @@ type FailedProxyStore struct {
 
 // Encode encodes json string
 func (meta *FailedProxyStore) Encode() ([]byte, error) {
-	return json.Marshal(meta)
+	data, err := json.Marshal(meta)
+	return data, errors.WithStack(err)
 }
 
 // Decode decodes json string
 func (meta *FailedProxyStore) Decode(data []byte) error {
 	err := json.Unmarshal(data, meta)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 
 	if meta.NodeAddresses == nil {
-		return errMissingField
+		return errors.WithStack(errMissingField)
 	}
 	return nil
 }
@@ -73,26 +77,28 @@ type ClusterStore struct {
 
 // Encode encodes json string
 func (meta *ClusterStore) Encode() ([]byte, error) {
-	return json.Marshal(meta)
+	data, err := json.Marshal(meta)
+	return data, errors.WithStack(err)
 }
 
 // Decode decodes json string
 func (meta *ClusterStore) Decode(data []byte) error {
 	err := json.Unmarshal(data, meta)
 	if err != nil {
-		return err
+		log.Errorf("invalid cluster data '%v'", string(data))
+		return errors.WithStack(err)
 	}
 
 	for _, node := range meta.Nodes {
 		if node.NodeAddress == "" || node.ProxyAddress == "" {
-			return errMissingField
+			return errors.WithStack(errMissingField)
 		}
 		for _, slot := range node.Slots {
 			if slot.Tag.TagType == "" {
-				return errMissingField
+				return errors.WithStack(errMissingField)
 			}
 			if slot.Tag.TagType != NoneTag && slot.Tag.Meta == nil {
-				return errMissingField
+				return errors.WithStack(errMissingField)
 			}
 		}
 	}

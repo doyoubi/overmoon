@@ -2,11 +2,11 @@ package broker
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log"
 	"time"
 
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
 	conc "go.etcd.io/etcd/clientv3/concurrency"
 )
@@ -34,7 +34,7 @@ type EtcdMetaManipulationBroker struct {
 }
 
 // NewEtcdMetaManipulationBrokerFromEndpoints creates EtcdMetaManipulationBroker from endpoints
-func NewEtcdMetaManipulationBrokerFromEndpoints(config *EtcdConfig, endpoints []string) (*EtcdMetaManipulationBroker, error) {
+func NewEtcdMetaManipulationBrokerFromEndpoints(config *EtcdConfig, endpoints []string, metaDataBroker *EtcdMetaBroker) (*EtcdMetaManipulationBroker, error) {
 	cfg := clientv3.Config{
 		Endpoints:   endpoints,
 		DialTimeout: 5 * time.Second,
@@ -43,15 +43,11 @@ func NewEtcdMetaManipulationBrokerFromEndpoints(config *EtcdConfig, endpoints []
 	if err != nil {
 		return nil, err
 	}
-	return NewEtcdMetaManipulationBroker(config, client)
+	return NewEtcdMetaManipulationBroker(config, client, metaDataBroker)
 }
 
 // NewEtcdMetaManipulationBroker creates EtcdMetaManipulationBroker
-func NewEtcdMetaManipulationBroker(config *EtcdConfig, client *clientv3.Client) (*EtcdMetaManipulationBroker, error) {
-	metaDataBroker, err := NewEtcdMetaBroker(config, client)
-	if err != nil {
-		return nil, err
-	}
+func NewEtcdMetaManipulationBroker(config *EtcdConfig, client *clientv3.Client, metaDataBroker *EtcdMetaBroker) (*EtcdMetaManipulationBroker, error) {
 	return &EtcdMetaManipulationBroker{
 		metaDataBroker: metaDataBroker,
 		config:         config,
@@ -70,9 +66,9 @@ func (broker *EtcdMetaManipulationBroker) InitGlobalEpoch() error {
 		return NewTxnBroker(broker.config, s).initGlobalEpoch()
 	})
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
-	log.Printf("response %v", response)
+	log.Infof("Successfully initialize global epoch. response %v", response)
 	return nil
 }
 
@@ -105,8 +101,11 @@ func (broker *EtcdMetaManipulationBroker) AddHost(ctx context.Context, address s
 		s.Del(failedProxyKey)
 		return nil
 	})
-	log.Printf("response %v", response)
-	return err
+	if err != nil {
+		log.Errorf("failed to add host. response: %v. error: %v", response, err)
+		return err
+	}
+	return nil
 }
 
 // CreateCluster creates a new cluster with specified node number
@@ -120,7 +119,7 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 		return err
 	}
 	if uint64(len(possiblyAvailableProxies)*halfChunkSize) < nodeNum {
-		log.Printf("only %d %d", len(possiblyAvailableProxies), nodeNum)
+		log.Infof("failed to create cluster, only found %d proxies, expected %d", len(possiblyAvailableProxies), nodeNum)
 		return ErrNoAvailableResource
 	}
 
@@ -138,17 +137,16 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 		return nil
 	})
 	if err != nil {
+		log.Errorf("failed to create cluster. response: %v. error: %v", response, err)
 		return err
 	}
-	log.Printf("response %v", response)
-
 	return nil
 }
 
 func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*ProxyStore) ([]*NodeStore, error) {
 	proxyNum := uint64(len(proxyMetadata))
 	nodeNum := proxyNum * 2
-	gap := (MaxSlotNumber + nodeNum - 1) / nodeNum
+	gap := (MaxSlotNumber + proxyNum - 1) / proxyNum
 	nodes := make([]*NodeStore, 0, nodeNum)
 
 	var index uint64
@@ -245,10 +243,10 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 		return txn.updateCluster(clusterName, globalEpoch, cluster)
 	})
 
-	log.Printf("replace proxy response %v", response)
 	if err != nil {
+		log.Errorf("failed to replace proxy. response: %v. error: %v", response, err)
 		return nil, err
 	}
 
-	return broker.metaDataBroker.GetHost(ctx, newProxyAddress)
+	return broker.metaDataBroker.GetProxy(ctx, newProxyAddress)
 }

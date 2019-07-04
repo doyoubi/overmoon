@@ -28,10 +28,13 @@ func genManiBroker(assert *assert.Assertions) *broker.EtcdMetaManipulationBroker
 		PathPrefix: "/integration_test",
 		FailureTTL: 10,
 	}
-	etcdBroker, err := broker.NewEtcdMetaManipulationBrokerFromEndpoints(cfg, endpoints)
+	metaBroker, err := broker.NewEtcdMetaBrokerFromEndpoints(cfg, endpoints)
+	assert.Nil(err)
+	assert.NotNil(metaBroker)
+	maniBroker, err := broker.NewEtcdMetaManipulationBrokerFromEndpoints(cfg, endpoints, metaBroker)
 	assert.NoError(err)
-	assert.NotNil(etcdBroker)
-	return etcdBroker
+	assert.NotNil(maniBroker)
+	return maniBroker
 }
 
 // func TestCreateBasicClusterMeta(t *testing.T) {
@@ -68,7 +71,7 @@ func TestAddProxies(t *testing.T) {
 	}
 	err = maniBroker.AddHost(ctx, "127.0.0.1:6001", nodes)
 	assert.NoError(err)
-	host, err := metaBroker.GetHost(ctx, "127.0.0.1:6001")
+	host, err := metaBroker.GetProxy(ctx, "127.0.0.1:6001")
 	assert.NoError(err)
 	assert.NotNil(host)
 	assert.Equal(host.Address, "127.0.0.1:6001")
@@ -221,4 +224,13 @@ func TestCreateCluster(t *testing.T) {
 	assert.Equal(nodes[1].ProxyAddress, nodes[2].Repl.Peers[0].ProxyAddress)
 	assert.Equal(nodes[0].Address, nodes[3].Repl.Peers[0].NodeAddress)
 	assert.Equal(nodes[0].ProxyAddress, nodes[3].Repl.Peers[0].ProxyAddress)
+
+	assert.Equal(1, len(nodes[0].Slots))
+	assert.Equal(0, len(nodes[1].Slots))
+	assert.Equal(1, len(nodes[2].Slots))
+	assert.Equal(0, len(nodes[3].Slots))
+	assert.Equal(uint64(0), nodes[0].Slots[0].Start)
+	assert.Equal(uint64(broker.MaxSlotNumber/2-1), nodes[0].Slots[0].End)
+	assert.Equal(uint64(broker.MaxSlotNumber/2), nodes[2].Slots[0].Start)
+	assert.Equal(uint64(broker.MaxSlotNumber-1), nodes[2].Slots[0].End)
 }
