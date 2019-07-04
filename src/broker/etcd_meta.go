@@ -16,14 +16,23 @@ import (
 // ErrTxnFailed indicates the transaction failed.
 var ErrTxnFailed = errors.New("txn failed")
 
-// ErrInvalidKeyNum indicates unexpected key number.
-var ErrInvalidKeyNum = errors.New("invalid key numbers")
+// ErrTryAgain indicates the cache is stall and client need to try again.
+var ErrTryAgain = errors.New("try again")
 
-// ErrNotExists indicates that key does not exist.
-var ErrNotExists = errors.New("missing key")
+// ErrClusterNotFound indicates that cluster does not exist.
+var ErrClusterNotFound = errors.New("cluster not found")
+
+// ErrProxyNotFound indicates that proxy does not exist.
+var ErrProxyNotFound = errors.New("proxy not found")
+
+// ErrProxyNotInUse indicates that key does not exist.
+var ErrProxyNotInUse = errors.New("proxy not in use")
 
 // ErrGlobalEpochNotFound indicates that key does not exist.
 var ErrGlobalEpochNotFound = errors.New("global epoch not found")
+
+var errNotExists = errors.New("missing key")
+var errInvalidKeyNum = errors.New("invalid key numbers")
 
 const failureMinReporter = 2
 const reportValidPeriod = 30
@@ -151,13 +160,13 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 		return 0, 0, nil, ErrTxnFailed
 	}
 	if len(response.Responses) != 3 {
-		return 0, 0, nil, ErrInvalidKeyNum
+		return 0, 0, nil, errors.WithStack(errInvalidKeyNum)
 	}
 
 	globalEpochRes := response.Responses[0].GetResponseRange()
 	globalEpoch, err := parseEpoch(globalEpochRes.Kvs)
 	if err != nil {
-		if err == ErrNotExists {
+		if err == errNotExists {
 			return 0, 0, nil, ErrGlobalEpochNotFound
 		}
 		return 0, 0, nil, err
@@ -165,8 +174,8 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 
 	epochRes := response.Responses[1].GetResponseRange()
 	epoch, err := parseEpoch(epochRes.Kvs)
-	if err == ErrNotExists {
-		return globalEpoch, 0, nil, nil
+	if err == errNotExists {
+		return globalEpoch, 0, nil, ErrClusterNotFound
 	}
 	if err != nil {
 		return 0, 0, nil, err
@@ -174,7 +183,7 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 
 	nodesRes := response.Responses[2].GetResponseRange()
 	if len(nodesRes.Kvs) != 1 {
-		return 0, 0, nil, ErrInvalidKeyNum
+		return 0, 0, nil, errors.WithStack(errInvalidKeyNum)
 	}
 	nodes, err := parseNodes(nodesRes.Kvs[0].Value)
 	if err != nil {
@@ -223,12 +232,7 @@ func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address str
 		return nil, err
 	}
 	if cluster == nil {
-		host := &Host{
-			Address: address,
-			Epoch:   globalEpoch,
-			Nodes:   []*Node{},
-		}
-		return host, nil
+		return nil, ErrTryAgain
 	}
 
 	nodes := make([]*Node, 0)
@@ -279,18 +283,24 @@ func (broker *EtcdMetaBroker) getProxyMetaFromEtcd(ctx context.Context, address 
 		return 0, nil, ErrTxnFailed
 	}
 	if len(response.Responses) != 2 {
-		return 0, nil, ErrInvalidKeyNum
+		return 0, nil, errors.WithStack(errInvalidKeyNum)
 	}
 
 	globalEpochRes := response.Responses[0].GetResponseRange()
 	globalEpoch, err := parseEpoch(globalEpochRes.Kvs)
+	if err == errNotExists {
+		return 0, nil, ErrProxyNotFound
+	}
 	if err != nil {
 		return 0, nil, err
 	}
 
 	proxyRes := response.Responses[1].GetResponseRange()
+	if len(proxyRes.Kvs) == 0 {
+		return 0, nil, ErrProxyNotFound
+	}
 	if len(proxyRes.Kvs) != 1 {
-		return 0, nil, ErrInvalidKeyNum
+		return 0, nil, errors.WithStack(errInvalidKeyNum)
 	}
 	proxyData := proxyRes.Kvs[0].Value
 
@@ -385,19 +395,11 @@ func (broker *EtcdMetaBroker) getAvailableProxyAddresses(ctx context.Context) ([
 	return possiblyAvailableProxies, nil
 }
 
-func (broker *EtcdMetaBroker) getEpoch(ctx context.Context, key string) (uint64, error) {
-	res, err := broker.client.Get(ctx, key)
-	if err != nil {
-		return 0, errors.WithStack(err)
-	}
-	return parseEpoch(res.Kvs)
-}
-
 func parseEpoch(kvs []*mvccpb.KeyValue) (uint64, error) {
 	if len(kvs) == 0 {
-		return 0, ErrNotExists
+		return 0, errNotExists
 	} else if len(kvs) > 1 {
-		return 0, ErrInvalidKeyNum
+		return 0, errors.WithStack(errInvalidKeyNum)
 	}
 	kv := kvs[0]
 

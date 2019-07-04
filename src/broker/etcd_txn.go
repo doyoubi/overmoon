@@ -38,10 +38,13 @@ func (txn *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, possib
 		}
 		proxyKey := fmt.Sprintf("%s/all_proxies/%s", txn.config.PathPrefix, address)
 		proxyData := txn.stm.Get(proxyKey)
+		if len(proxyData) == 0 {
+			continue
+		}
 		meta := &ProxyStore{}
 		err := meta.Decode([]byte(proxyData))
 		if err != nil {
-			log.Errorf("invalid proxy meta format: %s", proxyData)
+			log.Errorf("invalid proxy meta format: '%s'", proxyData)
 			continue
 		}
 		if meta.ClusterName != "" {
@@ -133,7 +136,7 @@ func (txn *TxnBroker) getCluster(clusterName string) (uint64, uint64, *ClusterSt
 func (txn *TxnBroker) updateCluster(clusterName string, oldGlobalEpoch uint64, cluster *ClusterStore) error {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", txn.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", txn.config.PathPrefix, clusterName)
-	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", txn.config.PathPrefix, clusterName)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", txn.config.PathPrefix, clusterName)
 
 	newGlobalEpoch := oldGlobalEpoch + 1
 	newGlobalEpochStr := strconv.FormatUint(newGlobalEpoch, 10)
@@ -206,7 +209,7 @@ func (txn *TxnBroker) replaceProxy(clusterName, failedProxyAddress string, globa
 				node.NodeAddress = newProxy.NodeAddresses[0]
 			} else if node.ProxyAddress == failedProxyAddress && i%2 == 1 {
 				node.ProxyAddress = newProxyAddress
-				node.NodeAddress = newProxy.NodeAddresses[0]
+				node.NodeAddress = newProxy.NodeAddresses[1]
 				exists = true
 				break
 			}

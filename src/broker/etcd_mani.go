@@ -207,7 +207,8 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 	}
 	clusterName := proxy.ClusterName
 	if clusterName == "" {
-		return nil, fmt.Errorf("%s not in use", address)
+		log.Warnf("%s not in use", address)
+		return nil, ErrProxyNotInUse
 	}
 
 	var newProxyAddress string
