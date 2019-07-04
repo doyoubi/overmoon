@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/doyoubi/overmoon/src/broker"
 )
@@ -38,7 +39,7 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	r.GET("/api/failures", proxy.handleGetFailure)
 
 	r.POST("/api/clusters", proxy.handleAddCluster)
-	r.POST("/api/proxies/failover/:proxy_address", proxy.handleReplaceNode)
+	r.POST("/api/proxies/failover/:proxy_address", proxy.handleReplaceProxy)
 	r.POST("/api/proxies/nodes", proxy.handleAddHost)
 
 	return r.Run(proxy.address)
@@ -167,6 +168,7 @@ func (proxy *HTTPBrokerProxy) handleAddCluster(c *gin.Context) {
 		return
 	}
 	if err != nil {
+		log.Errorf("failed to create cluster %+v", err)
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("%s", err),
 		})
@@ -176,10 +178,17 @@ func (proxy *HTTPBrokerProxy) handleAddCluster(c *gin.Context) {
 }
 
 // PUT /api/clusters/nodes
-func (proxy *HTTPBrokerProxy) handleReplaceNode(c *gin.Context) {
+func (proxy *HTTPBrokerProxy) handleReplaceProxy(c *gin.Context) {
 	proxyAddress := c.Param("proxy_address")
 	host, err := proxy.maniBroker.ReplaceProxy(proxy.ctx, proxyAddress)
+	if err == broker.ErrNoAvailableResource {
+		c.JSON(409, gin.H{
+			"error": fmt.Sprintf("No available resource %s", err),
+		})
+		return
+	}
 	if err != nil {
+		log.Errorf("failed to replace proxy: %+v", err)
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("%s", err),
 		})

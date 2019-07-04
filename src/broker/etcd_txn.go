@@ -2,9 +2,10 @@ package broker
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	conc "go.etcd.io/etcd/clientv3/concurrency"
 )
 
@@ -40,7 +41,7 @@ func (broker *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, pos
 		meta := &ProxyStore{}
 		err := meta.Decode([]byte(proxyData))
 		if err != nil {
-			log.Printf("invalid proxy meta format: %s", proxyData)
+			log.Errorf("invalid proxy meta format: %s", proxyData)
 			continue
 		}
 		if meta.ClusterName != "" {
@@ -79,7 +80,7 @@ func (broker *TxnBroker) createCluster(clusterName string, nodes []*NodeStore) e
 	}
 	globalEpoch, err := strconv.ParseUint(globalEpochStr, 10, 64)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	newGlobalEpoch := globalEpoch + 1
 	newGlobalEpochStr := strconv.FormatUint(newGlobalEpoch, 10)
@@ -106,7 +107,7 @@ func (broker *TxnBroker) createCluster(clusterName string, nodes []*NodeStore) e
 func (broker *TxnBroker) getCluster(clusterName string) (uint64, uint64, *ClusterStore, error) {
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", broker.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, clusterName)
-	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s/", broker.config.PathPrefix, clusterName)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", broker.config.PathPrefix, clusterName)
 
 	globalEpochStr := broker.stm.Get(globalEpochKey)
 	clusterEpochStr := broker.stm.Get(clusterEpochKey)
@@ -114,11 +115,11 @@ func (broker *TxnBroker) getCluster(clusterName string) (uint64, uint64, *Cluste
 
 	globalEpoch, err := strconv.ParseUint(globalEpochStr, 10, 64)
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, 0, nil, errors.WithStack(err)
 	}
 	clusterEpoch, err := strconv.ParseUint(clusterEpochStr, 10, 64)
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, 0, nil, errors.WithStack(err)
 	}
 
 	cluster := &ClusterStore{}

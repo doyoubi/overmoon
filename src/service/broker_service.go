@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
 
@@ -57,7 +57,7 @@ func RunBrokerService() error {
 		log.Print(errStr)
 		return errors.New(errStr)
 	}
-	fmt.Printf("config: %v\n", config)
+	log.Infof("config: %v\n", config)
 
 	brokerCfg := &broker.EtcdConfig{
 		PathPrefix: config.pathPrefix,
@@ -66,7 +66,7 @@ func RunBrokerService() error {
 	metaBroker, err := broker.NewEtcdMetaBrokerFromEndpoints(brokerCfg, config.etcdNodes)
 	if err != nil {
 		errStr := fmt.Sprintf("Failed to create meta broker %s", err)
-		log.Print(errStr)
+		log.Info(errStr)
 		return errors.New(errStr)
 	}
 	maniBroker, err := broker.NewEtcdMetaManipulationBrokerFromEndpoints(brokerCfg, config.etcdNodes, metaBroker)
@@ -82,7 +82,7 @@ func RunBrokerService() error {
 
 	err = maniBroker.InitGlobalEpoch()
 	if err != nil {
-		log.Printf("failed to init global epoch %v", err)
+		log.Errorf("failed to init global epoch %v", err)
 		return err
 	}
 
@@ -90,7 +90,7 @@ func RunBrokerService() error {
 	group.Go(func() error {
 		err := proxy.Serve()
 		if err != nil {
-			log.Printf("HTTP server exited with %v", err)
+			log.Infof("HTTP server exited with %v", err)
 			return err
 		}
 		<-ctx.Done()
@@ -98,7 +98,7 @@ func RunBrokerService() error {
 	})
 	group.Go(func() error {
 		err := metaBroker.Serve(ctx)
-		log.Printf("meta broker exited with %v", err)
+		log.Infof("meta broker exited with %v", err)
 		return errors.New("meta broker exited")
 	})
 	return group.Wait()

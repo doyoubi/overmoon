@@ -2,13 +2,13 @@ package broker
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/mvcc/mvccpb"
 )
@@ -43,7 +43,7 @@ func NewEtcdMetaBrokerFromEndpoints(config *EtcdConfig, endpoints []string) (*Et
 	}
 	client, err := clientv3.New(cfg)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 	return NewEtcdMetaBroker(config, client)
 }
@@ -80,7 +80,7 @@ func (broker *EtcdMetaBroker) GetClusterNames(ctx context.Context) ([]string, er
 	clusterKeyPrefix := fmt.Sprintf("%s/clusters/epoch/", broker.config.PathPrefix)
 	kvs, err := getRangeKeyPostfixAndValue(ctx, broker.client, clusterKeyPrefix)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 	keys := make([]string, 0, len(kvs))
 	for k := range kvs {
@@ -145,7 +145,7 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	).Commit()
 
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, 0, nil, errors.WithStack(err)
 	}
 	if !response.Succeeded {
 		return 0, 0, nil, ErrTxnFailed
@@ -273,7 +273,7 @@ func (broker *EtcdMetaBroker) getProxyMetaFromEtcd(ctx context.Context, address 
 	).Commit()
 
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, errors.WithStack(err)
 	}
 	if !response.Succeeded {
 		return 0, nil, ErrTxnFailed
@@ -309,13 +309,13 @@ func (broker *EtcdMetaBroker) AddFailure(ctx context.Context, address string, re
 	value := fmt.Sprintf("%v", timestamp)
 	res, err := broker.client.Grant(ctx, broker.config.FailureTTL)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	opts := []clientv3.OpOption{
 		clientv3.WithLease(clientv3.LeaseID(res.ID)),
 	}
 	_, err = broker.client.Put(ctx, key, value, opts...)
-	return err
+	return errors.WithStack(err)
 }
 
 // GetFailures retrieves the failures
@@ -332,13 +332,14 @@ func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error)
 	for k, v := range kv {
 		segs := strings.SplitN(string(k), "/", 2)
 		if len(segs) != 2 {
-			return nil, fmt.Errorf("invalid failure key %s", string(k))
+			err := fmt.Errorf("invalid failure key %s", string(k))
+			return nil, errors.WithStack(err)
 		}
 		proxyAddress := segs[0]
 
 		reportTimestamp, err := strconv.ParseInt(string(v), 10, 64)
 		if err != nil {
-			log.Printf("invalid report time %s", v)
+			log.Errorf("invalid report time %s", v)
 			continue
 		}
 		if reportTimestamp-now > reportValidPeriod {
@@ -358,7 +359,7 @@ func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) (map[stri
 	for _, address := range addresses {
 		_, err := broker.GetProxy(ctx, address)
 		if err != nil {
-			log.Printf("failed to load proxy %s", address)
+			log.Errorf("failed to load proxy %s", address)
 		}
 	}
 
@@ -387,7 +388,7 @@ func (broker *EtcdMetaBroker) getAvailableProxyAddresses(ctx context.Context) ([
 func (broker *EtcdMetaBroker) getEpoch(ctx context.Context, key string) (uint64, error) {
 	res, err := broker.client.Get(ctx, key)
 	if err != nil {
-		return 0, err
+		return 0, errors.WithStack(err)
 	}
 	return parseEpoch(res.Kvs)
 }
@@ -401,7 +402,7 @@ func parseEpoch(kvs []*mvccpb.KeyValue) (uint64, error) {
 	kv := kvs[0]
 
 	epoch, err := strconv.ParseUint(string(kv.Value), 10, 64)
-	return epoch, err
+	return epoch, errors.WithStack(err)
 }
 
 func parseNodes(clusterData []byte) ([]*Node, error) {
@@ -452,7 +453,8 @@ func setRepl(nodes []*Node) ([]*Node, error) {
 			peerIndex = nodeIndex - 3
 		}
 		if peerIndex < 0 || peerIndex >= len(nodes) {
-			return nil, errors.New("invalid node index when finding peer")
+			err := fmt.Errorf("invalid node index when finding peer %d", peerIndex)
+			return nil, errors.WithStack(err)
 		}
 		peer := nodes[peerIndex]
 		node.Repl = ReplMeta{
@@ -468,7 +470,8 @@ func setRepl(nodes []*Node) ([]*Node, error) {
 
 func addSlots(nodes []*Node, slots [][]SlotRangeStore) ([]*Node, error) {
 	if len(slots)*2 != len(nodes) {
-		return nil, fmt.Errorf("mismatch slots and nodes number, nodes: %d, slots: %d", len(nodes), len(slots))
+		err := fmt.Errorf("mismatch slots and nodes number, nodes: %d, slots: %d", len(nodes), len(slots))
+		return nil, errors.WithStack(err)
 	}
 
 	for i, slotRangeMeta := range slots {
@@ -511,7 +514,7 @@ func getRangeKeyPostfixAndValue(ctx context.Context, client *clientv3.Client, pr
 	}
 	res, err := client.Get(ctx, prefix, opts...)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 	return parseRangeResult(prefix, res.Kvs)
 }
@@ -521,7 +524,8 @@ func parseRangeResult(prefix string, kvs []*mvccpb.KeyValue) (map[string][]byte,
 	for _, item := range kvs {
 		key := string(item.Key)
 		if !strings.HasPrefix(key, prefix) {
-			return nil, fmt.Errorf("Unexpected key %s", key)
+			err := fmt.Errorf("Unexpected key %s", key)
+			return nil, errors.WithStack(err)
 		}
 		postfix := strings.TrimPrefix(key, prefix)
 		postfixes[postfix] = item.Value

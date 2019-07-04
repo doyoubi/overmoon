@@ -2,11 +2,11 @@ package broker
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log"
 	"time"
 
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
 	conc "go.etcd.io/etcd/clientv3/concurrency"
 )
@@ -66,9 +66,9 @@ func (broker *EtcdMetaManipulationBroker) InitGlobalEpoch() error {
 		return NewTxnBroker(broker.config, s).initGlobalEpoch()
 	})
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
-	log.Printf("response %v", response)
+	log.Infof("Successfully initialize global epoch. response %v", response)
 	return nil
 }
 
@@ -101,8 +101,11 @@ func (broker *EtcdMetaManipulationBroker) AddHost(ctx context.Context, address s
 		s.Del(failedProxyKey)
 		return nil
 	})
-	log.Printf("response %v", response)
-	return err
+	if err != nil {
+		log.Errorf("failed to add host. response: %v. error: %v", response, err)
+		return err
+	}
+	return nil
 }
 
 // CreateCluster creates a new cluster with specified node number
@@ -116,7 +119,7 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 		return err
 	}
 	if uint64(len(possiblyAvailableProxies)*halfChunkSize) < nodeNum {
-		log.Printf("only %d %d", len(possiblyAvailableProxies), nodeNum)
+		log.Infof("failed to create cluster, only found %d proxies, expected %d", len(possiblyAvailableProxies), nodeNum)
 		return ErrNoAvailableResource
 	}
 
@@ -134,10 +137,9 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 		return nil
 	})
 	if err != nil {
+		log.Errorf("failed to create cluster. response: %v. error: %v", response, err)
 		return err
 	}
-	log.Printf("response %v", response)
-
 	return nil
 }
 
@@ -241,8 +243,8 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 		return txn.updateCluster(clusterName, globalEpoch, cluster)
 	})
 
-	log.Printf("replace proxy response %v", response)
 	if err != nil {
+		log.Errorf("failed to replace proxy. response: %v. error: %v", response, err)
 		return nil, err
 	}
 
