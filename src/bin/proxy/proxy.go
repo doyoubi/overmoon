@@ -1,12 +1,12 @@
 package main
 
 import (
-	"log"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/doyoubi/overmoon/src/service"
 )
 
 func main() {
 	err := service.RunBrokerService()
-	log.Printf("service exited %v", err)
+	log.Infof("service exited %v", err)
 }

@@ -54,7 +54,7 @@ func RunBrokerService() error {
 	config, err := getConfig()
 	if err != nil {
 		errStr := fmt.Sprintf("Failed to read config file %s", err)
-		log.Print(errStr)
+		log.Info(errStr)
 		return errors.New(errStr)
 	}
 	log.Infof("config: %v\n", config)
@@ -72,7 +72,7 @@ func RunBrokerService() error {
 	maniBroker, err := broker.NewEtcdMetaManipulationBrokerFromEndpoints(brokerCfg, config.etcdNodes, metaBroker)
 	if err != nil {
 		errStr := fmt.Sprintf("Failed to create manipulation broker %s", err)
-		log.Print(errStr)
+		log.Info(errStr)
 		return errors.New(errStr)
 	}
 
