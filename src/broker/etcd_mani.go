@@ -129,11 +129,11 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 		if err != nil {
 			return err
 		}
-		nodes, err := broker.genNodes(proxies)
+		cluster, err := broker.genCluster(proxies)
 		if err != nil {
 			return err
 		}
-		txn.createCluster(clusterName, nodes)
+		txn.createCluster(clusterName, cluster)
 		return nil
 	})
 	if err != nil {
@@ -143,11 +143,14 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 	return nil
 }
 
-func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*ProxyStore) ([]*NodeStore, error) {
+func (broker *EtcdMetaManipulationBroker) genCluster(proxyMetadata map[string]*ProxyStore) (*ClusterStore, error) {
 	proxyNum := uint64(len(proxyMetadata))
-	nodeNum := proxyNum * 2
+	chunkNum := proxyNum / 2
 	gap := (MaxSlotNumber + proxyNum - 1) / proxyNum
-	nodes := make([]*NodeStore, 0, nodeNum)
+
+	chunks := make([]*NodeChunkStore, 0, chunkNum)
+	chunkNodes := make([]*NodeStore, 0, chunkSize)
+	chunkSlots := make([][]SlotRangeStore, 0, halfChunkSize)
 
 	var index uint64
 	for proxyAddress, meta := range proxyMetadata {
@@ -166,20 +169,30 @@ func (broker *EtcdMetaManipulationBroker) genNodes(proxyMetadata map[string]*Pro
 		master := &NodeStore{
 			NodeAddress:  meta.NodeAddresses[0],
 			ProxyAddress: proxyAddress,
-			Slots:        []SlotRangeStore{slots},
 		}
 		replica := &NodeStore{
 			NodeAddress:  meta.NodeAddresses[1],
 			ProxyAddress: proxyAddress,
-			Slots:        []SlotRangeStore{},
 		}
-		nodes = append(nodes, master)
-		nodes = append(nodes, replica)
+		chunkNodes = append(chunkNodes, master)
+		chunkNodes = append(chunkNodes, replica)
+		chunkSlots = append(chunkSlots, []SlotRangeStore{slots})
+
+		if index%2 == 1 {
+			chunk := &NodeChunkStore{
+				RolePosition: ChunkRoleNormalPosition,
+				Slots:        chunkSlots,
+				Nodes:        chunkNodes,
+			}
+			chunks = append(chunks, chunk)
+			chunkNodes = make([]*NodeStore, 0, chunkSize)
+			chunkSlots = make([][]SlotRangeStore, 0, halfChunkSize)
+		}
 
 		index++
 	}
 
-	return nodes, nil
+	return &ClusterStore{Chunks: chunks}, nil
 }
 
 // ReplaceProxy changes the proxy and return the new one.
@@ -194,7 +207,8 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 	}
 	clusterName := proxy.ClusterName
 	if clusterName == "" {
-		return nil, fmt.Errorf("%s not in use", address)
+		log.Warnf("%s not in use", address)
+		return nil, ErrProxyNotInUse
 	}
 
 	var newProxyAddress string
@@ -207,40 +221,14 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 			return err
 		}
 
-		proxies, err := txn.consumeProxies(clusterName, 1, possiblyAvailableProxies)
+		err = txn.takeover(clusterName, address, globalEpoch, cluster)
 		if err != nil {
+			log.Errorf("failed to takeover %+v", err)
 			return err
 		}
-		if len(proxies) != 1 {
-			return fmt.Errorf("expected 1 proxy, got %d", len(proxies))
-		}
-		var newProxy *ProxyStore
-		for k, v := range proxies {
-			newProxyAddress = k
-			newProxy = v
-		}
 
-		exists := false
-		for i, node := range cluster.Nodes {
-			if node.ProxyAddress == address && i%2 == 0 {
-				node.ProxyAddress = newProxyAddress
-				node.NodeAddress = newProxy.NodeAddresses[0]
-			} else if node.ProxyAddress == address && i%2 == 1 {
-				node.ProxyAddress = newProxyAddress
-				node.NodeAddress = newProxy.NodeAddresses[0]
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			return fmt.Errorf("cluster %s does not include %s", clusterName, address)
-		}
-
-		err = txn.setFailed(address)
-		if err != nil {
-			return err
-		}
-		return txn.updateCluster(clusterName, globalEpoch, cluster)
+		newProxyAddress, err = txn.replaceProxy(clusterName, address, globalEpoch, cluster, possiblyAvailableProxies)
+		return err
 	})
 
 	if err != nil {

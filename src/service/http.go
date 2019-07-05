@@ -63,7 +63,7 @@ func (proxy *HTTPBrokerProxy) handleGetClusterNames(c *gin.Context) {
 func (proxy *HTTPBrokerProxy) handleGetCluster(c *gin.Context) {
 	name := c.Param("name")
 	cluster, err := proxy.broker.GetCluster(proxy.ctx, name)
-	if err == broker.ErrNotExists {
+	if err == broker.ErrClusterNotFound {
 		c.JSON(200, gin.H{
 			"cluster": nil,
 		})
@@ -98,13 +98,20 @@ func (proxy *HTTPBrokerProxy) handleGetProxyAddresses(c *gin.Context) {
 func (proxy *HTTPBrokerProxy) handleGetProxy(c *gin.Context) {
 	address := c.Param("address")
 	host, err := proxy.broker.GetProxy(proxy.ctx, address)
-	if err == broker.ErrNotExists {
+	if err == broker.ErrProxyNotFound {
 		c.JSON(200, gin.H{
 			"host": nil,
 		})
 		return
 	}
+	if err == broker.ErrTryAgain {
+		c.JSON(503, gin.H{
+			"error": "try again",
+		})
+		return
+	}
 	if err != nil {
+		log.Errorf("failed to get proxy %+v", err)
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("%s", err),
 		})
@@ -183,7 +190,19 @@ func (proxy *HTTPBrokerProxy) handleReplaceProxy(c *gin.Context) {
 	host, err := proxy.maniBroker.ReplaceProxy(proxy.ctx, proxyAddress)
 	if err == broker.ErrNoAvailableResource {
 		c.JSON(409, gin.H{
-			"error": fmt.Sprintf("No available resource %s", err),
+			"error": fmt.Sprintf("No available resource: %s", err),
+		})
+		return
+	}
+	if err == broker.ErrProxyNotInUse || err == broker.ErrProxyNotFound {
+		c.JSON(400, gin.H{
+			"error": fmt.Sprintf("can't replace proxy %s: %s", proxyAddress, err),
+		})
+		return
+	}
+	if err == broker.ErrTryAgain {
+		c.JSON(503, gin.H{
+			"error": "try again",
 		})
 		return
 	}

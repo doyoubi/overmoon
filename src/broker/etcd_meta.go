@@ -16,14 +16,23 @@ import (
 // ErrTxnFailed indicates the transaction failed.
 var ErrTxnFailed = errors.New("txn failed")
 
-// ErrInvalidKeyNum indicates unexpected key number.
-var ErrInvalidKeyNum = errors.New("invalid key numbers")
+// ErrTryAgain indicates the cache is stall and client need to try again.
+var ErrTryAgain = errors.New("try again")
 
-// ErrNotExists indicates that key does not exist.
-var ErrNotExists = errors.New("missing key")
+// ErrClusterNotFound indicates that cluster does not exist.
+var ErrClusterNotFound = errors.New("cluster not found")
+
+// ErrProxyNotFound indicates that proxy does not exist.
+var ErrProxyNotFound = errors.New("proxy not found")
+
+// ErrProxyNotInUse indicates that key does not exist.
+var ErrProxyNotInUse = errors.New("proxy not in use")
 
 // ErrGlobalEpochNotFound indicates that key does not exist.
 var ErrGlobalEpochNotFound = errors.New("global epoch not found")
+
+var errNotExists = errors.New("missing key")
+var errInvalidKeyNum = errors.New("invalid key numbers")
 
 const failureMinReporter = 2
 const reportValidPeriod = 30
@@ -59,10 +68,10 @@ func NewEtcdMetaBroker(config *EtcdConfig, client *clientv3.Client) (*EtcdMetaBr
 
 // Serve runs the routine cleanup of cache
 func (broker *EtcdMetaBroker) Serve(ctx context.Context) error {
-	return broker.clearCache(ctx)
+	return broker.serveClearingCache(ctx)
 }
 
-func (broker *EtcdMetaBroker) clearCache(ctx context.Context) error {
+func (broker *EtcdMetaBroker) serveClearingCache(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -73,6 +82,11 @@ func (broker *EtcdMetaBroker) clearCache(ctx context.Context) error {
 		broker.cache.clearAll()
 		time.Sleep(time.Second * time.Duration(2))
 	}
+}
+
+// ClearCache clears the cached metadata.
+func (broker *EtcdMetaBroker) ClearCache() {
+	broker.cache.clearAll()
 }
 
 // GetClusterNames retrieves all the cluster names from etcd.
@@ -151,13 +165,13 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 		return 0, 0, nil, ErrTxnFailed
 	}
 	if len(response.Responses) != 3 {
-		return 0, 0, nil, ErrInvalidKeyNum
+		return 0, 0, nil, errors.WithStack(errInvalidKeyNum)
 	}
 
 	globalEpochRes := response.Responses[0].GetResponseRange()
 	globalEpoch, err := parseEpoch(globalEpochRes.Kvs)
 	if err != nil {
-		if err == ErrNotExists {
+		if err == errNotExists {
 			return 0, 0, nil, ErrGlobalEpochNotFound
 		}
 		return 0, 0, nil, err
@@ -165,8 +179,8 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 
 	epochRes := response.Responses[1].GetResponseRange()
 	epoch, err := parseEpoch(epochRes.Kvs)
-	if err == ErrNotExists {
-		return globalEpoch, 0, nil, nil
+	if err == errNotExists {
+		return globalEpoch, 0, nil, ErrClusterNotFound
 	}
 	if err != nil {
 		return 0, 0, nil, err
@@ -174,7 +188,7 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 
 	nodesRes := response.Responses[2].GetResponseRange()
 	if len(nodesRes.Kvs) != 1 {
-		return 0, 0, nil, ErrInvalidKeyNum
+		return 0, 0, nil, errors.WithStack(errInvalidKeyNum)
 	}
 	nodes, err := parseNodes(nodesRes.Kvs[0].Value)
 	if err != nil {
@@ -223,12 +237,7 @@ func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address str
 		return nil, err
 	}
 	if cluster == nil {
-		host := &Host{
-			Address: address,
-			Epoch:   globalEpoch,
-			Nodes:   []*Node{},
-		}
-		return host, nil
+		return nil, ErrTryAgain
 	}
 
 	nodes := make([]*Node, 0)
@@ -279,18 +288,24 @@ func (broker *EtcdMetaBroker) getProxyMetaFromEtcd(ctx context.Context, address 
 		return 0, nil, ErrTxnFailed
 	}
 	if len(response.Responses) != 2 {
-		return 0, nil, ErrInvalidKeyNum
+		return 0, nil, errors.WithStack(errInvalidKeyNum)
 	}
 
 	globalEpochRes := response.Responses[0].GetResponseRange()
 	globalEpoch, err := parseEpoch(globalEpochRes.Kvs)
+	if err == errNotExists {
+		return 0, nil, ErrProxyNotFound
+	}
 	if err != nil {
 		return 0, nil, err
 	}
 
 	proxyRes := response.Responses[1].GetResponseRange()
+	if len(proxyRes.Kvs) == 0 {
+		return 0, nil, ErrProxyNotFound
+	}
 	if len(proxyRes.Kvs) != 1 {
-		return 0, nil, ErrInvalidKeyNum
+		return 0, nil, errors.WithStack(errInvalidKeyNum)
 	}
 	proxyData := proxyRes.Kvs[0].Value
 
@@ -385,127 +400,16 @@ func (broker *EtcdMetaBroker) getAvailableProxyAddresses(ctx context.Context) ([
 	return possiblyAvailableProxies, nil
 }
 
-func (broker *EtcdMetaBroker) getEpoch(ctx context.Context, key string) (uint64, error) {
-	res, err := broker.client.Get(ctx, key)
-	if err != nil {
-		return 0, errors.WithStack(err)
-	}
-	return parseEpoch(res.Kvs)
-}
-
 func parseEpoch(kvs []*mvccpb.KeyValue) (uint64, error) {
 	if len(kvs) == 0 {
-		return 0, ErrNotExists
+		return 0, errNotExists
 	} else if len(kvs) > 1 {
-		return 0, ErrInvalidKeyNum
+		return 0, errors.WithStack(errInvalidKeyNum)
 	}
 	kv := kvs[0]
 
 	epoch, err := strconv.ParseUint(string(kv.Value), 10, 64)
 	return epoch, errors.WithStack(err)
-}
-
-func parseNodes(clusterData []byte) ([]*Node, error) {
-	cluster := &ClusterStore{}
-	err := cluster.Decode(clusterData)
-	if err != nil {
-		return nil, err
-	}
-
-	nodes := make([]*Node, 0, len(cluster.Nodes))
-	slots := make([][]SlotRangeStore, 0, len(cluster.Nodes)/2)
-	for nodeIndex, etcdNodeMeta := range cluster.Nodes {
-		node := &Node{
-			Address:      etcdNodeMeta.NodeAddress,
-			ProxyAddress: etcdNodeMeta.ProxyAddress,
-			ClusterName:  "",         // initialized later
-			Slots:        nil,        // initialized later
-			Repl:         ReplMeta{}, // initialized later
-		}
-
-		nodes = append(nodes, node)
-		if nodeIndex%2 == 0 {
-			slots = append(slots, etcdNodeMeta.Slots)
-		}
-	}
-	nodes, err = setRepl(nodes)
-	if err != nil {
-		return nil, err
-	}
-	return addSlots(nodes, slots)
-}
-
-func setRepl(nodes []*Node) ([]*Node, error) {
-	for nodeIndex, node := range nodes {
-		role := MasterRole
-		if nodeIndex%2 == 1 {
-			role = ReplicaRole
-		}
-		var peerIndex int
-		switch nodeIndex % 4 {
-		case 0:
-			peerIndex = nodeIndex + 3
-		case 1:
-			peerIndex = nodeIndex + 1
-		case 2:
-			peerIndex = nodeIndex - 1
-		case 3:
-			peerIndex = nodeIndex - 3
-		}
-		if peerIndex < 0 || peerIndex >= len(nodes) {
-			err := fmt.Errorf("invalid node index when finding peer %d", peerIndex)
-			return nil, errors.WithStack(err)
-		}
-		peer := nodes[peerIndex]
-		node.Repl = ReplMeta{
-			Role: role,
-			Peers: []ReplPeer{ReplPeer{
-				NodeAddress:  peer.Address,
-				ProxyAddress: peer.ProxyAddress,
-			}},
-		}
-	}
-	return nodes, nil
-}
-
-func addSlots(nodes []*Node, slots [][]SlotRangeStore) ([]*Node, error) {
-	if len(slots)*2 != len(nodes) {
-		err := fmt.Errorf("mismatch slots and nodes number, nodes: %d, slots: %d", len(nodes), len(slots))
-		return nil, errors.WithStack(err)
-	}
-
-	for i, slotRangeMeta := range slots {
-		slotRanges := make([]SlotRange, 0, len(slotRangeMeta))
-		for _, meta := range slotRangeMeta {
-			if meta.Tag.TagType == NoneTag {
-				slotRanges = append(slotRanges, SlotRange{
-					Start: meta.Start,
-					End:   meta.End,
-					Tag:   SlotRangeTag{TagType: meta.Tag.TagType},
-				})
-				continue
-			}
-			srcMasterIndex := meta.Tag.Meta.SrcProxyIndex * 2
-			dstMasterIndex := meta.Tag.Meta.DstProxyIndex * 2
-			slotRanges = append(slotRanges, SlotRange{
-				Start: meta.Start,
-				End:   meta.End,
-				Tag: SlotRangeTag{
-					TagType: meta.Tag.TagType,
-					Meta: &MigrationMeta{
-						Epoch:           meta.Tag.Meta.Epoch,
-						SrcNodeAddress:  nodes[srcMasterIndex].Address,
-						SrcProxyAddress: nodes[srcMasterIndex].ProxyAddress,
-						DstNodeAddress:  nodes[dstMasterIndex].Address,
-						DstProxyAddress: nodes[dstMasterIndex].ProxyAddress,
-					},
-				},
-			})
-		}
-		nodes[2*i].Slots = slotRanges
-		nodes[2*i+1].Slots = []SlotRange{}
-	}
-	return nodes, nil
 }
 
 func getRangeKeyPostfixAndValue(ctx context.Context, client *clientv3.Client, prefix string) (map[string][]byte, error) {
