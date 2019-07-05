@@ -77,9 +77,7 @@ func (txn *TxnBroker) createCluster(clusterName string, cluster *ClusterStore) e
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", txn.config.PathPrefix)
 	globalEpochStr := txn.stm.Get(globalEpochKey)
 	if globalEpochStr == "" {
-		// TODO: make this safer by returning a error for the case that
-		// this key might be lost.
-		globalEpochStr = "0"
+		return ErrGlobalEpochNotFound
 	}
 	globalEpoch, err := strconv.ParseUint(globalEpochStr, 10, 64)
 	if err != nil {
