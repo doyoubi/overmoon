@@ -197,10 +197,6 @@ func (broker *EtcdMetaManipulationBroker) genCluster(proxyMetadata map[string]*P
 
 // ReplaceProxy changes the proxy and return the new one.
 func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, address string) (*Host, error) {
-	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
-	if err != nil {
-		return nil, err
-	}
 	_, proxy, err := broker.metaDataBroker.getProxyMetaFromEtcd(ctx, address)
 	if err != nil {
 		return nil, err
@@ -211,8 +207,6 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 		return nil, ErrProxyNotInUse
 	}
 
-	var newProxyAddress string
-
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
 
@@ -221,9 +215,26 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 			return err
 		}
 
-		err = txn.takeover(clusterName, address, globalEpoch, cluster)
+		return txn.takeover(clusterName, address, globalEpoch, cluster)
+	})
+
+	if err != nil {
+		log.Errorf("failed to takeover. response: %v. error: %v", response, err)
+		return nil, err
+	}
+
+	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var newProxyAddress string
+
+	response, err = conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+
+		globalEpoch, _, cluster, err := txn.getCluster(clusterName)
 		if err != nil {
-			log.Errorf("failed to takeover %+v", err)
 			return err
 		}
 
@@ -236,5 +247,6 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 		return nil, err
 	}
 
+	// TODO: get proxy directly from cache or change api.
 	return broker.metaDataBroker.GetProxy(ctx, newProxyAddress)
 }
