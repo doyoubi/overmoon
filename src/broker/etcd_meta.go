@@ -68,10 +68,10 @@ func NewEtcdMetaBroker(config *EtcdConfig, client *clientv3.Client) (*EtcdMetaBr
 
 // Serve runs the routine cleanup of cache
 func (broker *EtcdMetaBroker) Serve(ctx context.Context) error {
-	return broker.clearCache(ctx)
+	return broker.serveClearingCache(ctx)
 }
 
-func (broker *EtcdMetaBroker) clearCache(ctx context.Context) error {
+func (broker *EtcdMetaBroker) serveClearingCache(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -82,6 +82,11 @@ func (broker *EtcdMetaBroker) clearCache(ctx context.Context) error {
 		broker.cache.clearAll()
 		time.Sleep(time.Second * time.Duration(2))
 	}
+}
+
+// ClearCache clears the cached metadata.
+func (broker *EtcdMetaBroker) ClearCache() {
+	broker.cache.clearAll()
 }
 
 // GetClusterNames retrieves all the cluster names from etcd.

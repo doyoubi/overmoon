@@ -37,24 +37,6 @@ func genManiBroker(assert *assert.Assertions) *broker.EtcdMetaManipulationBroker
 	return maniBroker
 }
 
-// func TestCreateBasicClusterMeta(t *testing.T) {
-// 	assert := assert.New(t)
-// 	initManiData(assert)
-// 	broker := genManiBroker(assert)
-// 	meta_broker := genBroker(assert)
-// 	ctx := context.Background()
-
-// 	clusterName := "test_mani_create_basic_meta"
-// 	err := broker.CreateBasicClusterMeta(ctx, clusterName, 1, 1024)
-// 	assert.NoError(err)
-// 	cluster, err := meta_broker.GetCluster(ctx, clusterName)
-// 	assert.NoError(err)
-// 	assert.NotNil(cluster)
-// 	assert.Equal(int64(1), cluster.Epoch)
-// 	assert.Equal(0, len(cluster.Nodes))
-// 	assert.Equal(clusterName, cluster.Name)
-// }
-
 func TestAddProxies(t *testing.T) {
 	assert := assert.New(t)
 	initManiData(assert)
@@ -127,52 +109,65 @@ func TestAddProxies(t *testing.T) {
 // 	assert.Equal(0, len(cluster.Nodes))
 // }
 
-// func TestReplaceNode(t *testing.T) {
-// 	assert := assert.New(t)
-// 	initManiData(assert)
-// 	mb := genBroker(assert)
-// 	b := genManiBroker(assert)
-// 	ctx := context.Background()
+func TestReplaceProxy(t *testing.T) {
+	assert := assert.New(t)
+	initManiData(assert)
+	prepareData(assert)
+	maniBroker := genManiBroker(assert)
+	metaBroker := maniBroker.GetMetaBroker()
+	ctx := context.Background()
 
-// 	nodes1 := []string{
-// 		"127.0.0.1:7001",
-// 	}
-// 	clusterName := "test_replace_node"
+	clusterName := "mycluster"
+	cluster, err := metaBroker.GetCluster(ctx, clusterName)
+	assert.NoError(err)
+	assert.NotNil(cluster)
 
-// 	err := b.AddHost(ctx, "127.0.0.1:5299", nodes1)
-// 	assert.NoError(err)
-// 	err = b.CreateBasicClusterMeta(ctx, clusterName, 1, 1024)
-// 	assert.NoError(err)
-// 	slots := []broker.SlotRange{
-// 		broker.SlotRange{
-// 			Start: 0,
-// 			End:   2333,
-// 			Tag:   "",
-// 		},
-// 	}
-// 	node, err := b.CreateNode(ctx, clusterName, 1, slots, broker.MasterRole)
-// 	assert.NoError(err)
-// 	assert.NotNil(node)
+	assert.Equal("127.0.0.1:7001", cluster.Nodes[0].Address)
+	assert.Equal("127.0.0.1:6001", cluster.Nodes[0].ProxyAddress)
+	assert.Equal("127.0.0.1:7002", cluster.Nodes[1].Address)
+	assert.Equal("127.0.0.1:6001", cluster.Nodes[1].ProxyAddress)
 
-// 	nodes2 := []string{
-// 		"127.0.0.2:7001",
-// 	}
-// 	err = b.AddHost(ctx, "127.0.0.2:5299", nodes2)
+	assert.Equal(4, len(cluster.Nodes))
+	assert.Equal(broker.MasterRole, cluster.Nodes[0].Repl.Role)
+	assert.Equal(broker.ReplicaRole, cluster.Nodes[1].Repl.Role)
+	assert.Equal(broker.MasterRole, cluster.Nodes[2].Repl.Role)
+	assert.Equal(broker.ReplicaRole, cluster.Nodes[3].Repl.Role)
 
-// 	newNode, err := b.ReplaceNode(ctx, 2, node)
-// 	assert.NoError(err)
-// 	assert.NotNil(newNode)
-// 	assert.Equal("127.0.0.2:7001", newNode.Address)
-// 	assert.Equal(clusterName, newNode.ClusterName)
-// 	assert.Equal("127.0.0.2:5299", newNode.ProxyAddress)
-// 	assert.Equal(1, len(newNode.Slots))
+	proxy1, err := metaBroker.GetProxy(ctx, "127.0.0.1:6001")
+	assert.NoError(err)
+	assert.NotNil(proxy1)
+	assert.Equal(2, len(proxy1.Nodes))
+	proxy3, err := metaBroker.GetProxy(ctx, "127.0.0.3:6003")
+	assert.NoError(err)
+	assert.NotNil(proxy3)
+	assert.Equal(0, len(proxy3.Nodes))
 
-// 	cluster, err := mb.GetCluster(ctx, clusterName)
-// 	assert.NoError(err)
-// 	assert.NotNil(cluster)
-// 	assert.Equal(1, len(cluster.Nodes))
-// 	assert.Equal("127.0.0.2:7001", cluster.Nodes[0].Address)
-// }
+	maniBroker.ReplaceProxy(ctx, "127.0.0.1:6001")
+	metaBroker.ClearCache()
+
+	cluster, err = metaBroker.GetCluster(ctx, clusterName)
+	assert.NoError(err)
+	assert.NotNil(cluster)
+
+	assert.Equal("127.0.0.3:7005", cluster.Nodes[0].Address)
+	assert.Equal("127.0.0.3:6003", cluster.Nodes[0].ProxyAddress)
+	assert.Equal("127.0.0.3:7006", cluster.Nodes[1].Address)
+	assert.Equal("127.0.0.3:6003", cluster.Nodes[1].ProxyAddress)
+
+	assert.Equal(4, len(cluster.Nodes))
+	assert.Equal(broker.ReplicaRole, cluster.Nodes[0].Repl.Role)
+	assert.Equal(broker.ReplicaRole, cluster.Nodes[1].Repl.Role)
+	assert.Equal(broker.MasterRole, cluster.Nodes[2].Repl.Role)
+	assert.Equal(broker.MasterRole, cluster.Nodes[3].Repl.Role)
+
+	proxy1, err = metaBroker.GetProxy(ctx, "127.0.0.1:6001")
+	assert.Equal(broker.ErrProxyNotFound, err)
+	assert.Nil(proxy1)
+	proxy3, err = metaBroker.GetProxy(ctx, "127.0.0.3:6003")
+	assert.NoError(err)
+	assert.NotNil(proxy3)
+	assert.Equal(2, len(proxy3.Nodes))
+}
 
 func TestCreateCluster(t *testing.T) {
 	assert := assert.New(t)

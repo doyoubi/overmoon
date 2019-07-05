@@ -78,7 +78,7 @@ func prepareData(assert *assert.Assertions) {
 	proxy3 := &broker.ProxyStore{
 		ClusterName:   "",
 		ProxyIndex:    0,
-		NodeAddresses: []string{"127.0.0.3:7005", "127.0.0.2:7006"},
+		NodeAddresses: []string{"127.0.0.3:7005", "127.0.0.3:7006"},
 	}
 	proxy1Str, err := proxy1.Encode()
 	assert.NoError(err)
