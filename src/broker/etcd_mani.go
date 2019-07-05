@@ -148,7 +148,7 @@ func (broker *EtcdMetaManipulationBroker) genCluster(proxyMetadata map[string]*P
 	chunkNum := proxyNum / 2
 	gap := (MaxSlotNumber + proxyNum - 1) / proxyNum
 
-	chunks := make([]*NodeChunk, 0, chunkNum)
+	chunks := make([]*NodeChunkStore, 0, chunkNum)
 	chunkNodes := make([]*NodeStore, 0, chunkSize)
 	chunkSlots := make([][]SlotRangeStore, 0, halfChunkSize)
 
@@ -179,7 +179,7 @@ func (broker *EtcdMetaManipulationBroker) genCluster(proxyMetadata map[string]*P
 		chunkSlots = append(chunkSlots, []SlotRangeStore{slots})
 
 		if index%2 == 1 {
-			chunk := &NodeChunk{
+			chunk := &NodeChunkStore{
 				RolePosition: ChunkRoleNormalPosition,
 				Slots:        chunkSlots,
 				Nodes:        chunkNodes,
@@ -218,6 +218,12 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 
 		globalEpoch, _, cluster, err := txn.getCluster(clusterName)
 		if err != nil {
+			return err
+		}
+
+		err = txn.takeover(clusterName, address, globalEpoch, cluster)
+		if err != nil {
+			log.Errorf("failed to takeover %+v", err)
 			return err
 		}
 

@@ -45,7 +45,7 @@ func prepareData(assert *assert.Assertions) {
 		NodeAddress:  "127.0.0.2:7004",
 		ProxyAddress: "127.0.0.2:6002",
 	}
-	chunk1 := &broker.NodeChunk{
+	chunk1 := &broker.NodeChunkStore{
 		RolePosition: broker.ChunkRoleNormalPosition,
 		Slots: [][]broker.SlotRangeStore{
 			[]broker.SlotRangeStore{broker.SlotRangeStore{
@@ -60,7 +60,7 @@ func prepareData(assert *assert.Assertions) {
 		Nodes: []*broker.NodeStore{node1, node2, node3, node4},
 	}
 	cluster := &broker.ClusterStore{
-		Chunks: []*broker.NodeChunk{chunk1},
+		Chunks: []*broker.NodeChunkStore{chunk1},
 	}
 	clusterStr, err := cluster.Encode()
 	assert.NoError(err)

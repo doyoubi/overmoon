@@ -18,23 +18,23 @@ type ProxyStore struct {
 }
 
 // Encode encodes json string
-func (store *ProxyStore) Encode() ([]byte, error) {
-	data, err := json.Marshal(store)
+func (proxy *ProxyStore) Encode() ([]byte, error) {
+	data, err := json.Marshal(proxy)
 	return data, errors.WithStack(err)
 }
 
 // Decode decodes json string
-func (store *ProxyStore) Decode(data []byte) error {
-	err := json.Unmarshal(data, store)
+func (proxy *ProxyStore) Decode(data []byte) error {
+	err := json.Unmarshal(data, proxy)
 	if err != nil {
 		return errors.WithStack(err)
 	}
 
 	// For simplicity, just ignore the case that meta.ProxyIndex == 0
-	if store.NodeAddresses == nil {
+	if proxy.NodeAddresses == nil {
 		return errors.WithStack(errMissingField)
 	}
-	if store.ClusterName == "" && store.ProxyIndex > 0 {
+	if proxy.ClusterName == "" && proxy.ProxyIndex > 0 {
 		return errors.WithStack(errMissingField)
 	}
 	return nil
@@ -72,7 +72,21 @@ type NodeStore struct {
 
 // ClusterStore stores the nodes
 type ClusterStore struct {
-	Chunks []*NodeChunk `json:"chunks"`
+	Chunks []*NodeChunkStore `json:"chunks"`
+}
+
+// FindChunkByProxy find chunk by proxy address.
+func (cluster *ClusterStore) FindChunkByProxy(proxyAddress string) (*NodeChunkStore, error) {
+	for _, chunk := range cluster.Chunks {
+		if len(chunk.Nodes) != chunkSize {
+			err := fmt.Errorf("invalid chunk size: %+v", chunk.Nodes)
+			return nil, errors.WithStack(err)
+		}
+		if chunk.Nodes[0].ProxyAddress == proxyAddress || chunk.Nodes[halfChunkSize].ProxyAddress == proxyAddress {
+			return chunk, nil
+		}
+	}
+	return nil, ErrProxyNotFound
 }
 
 // ChunkRolePosition indicates the roles in the chunk
@@ -87,32 +101,52 @@ const (
 	ChunkRoleSecondChunkMaster ChunkRolePosition = 2
 )
 
-// NodeChunk stores 4 nodes as a group
-type NodeChunk struct {
+// NodeChunkStore stores 4 nodes as a group
+type NodeChunkStore struct {
 	RolePosition ChunkRolePosition
 	Slots        [][]SlotRangeStore `json:"slots"`
 	Nodes        []*NodeStore       `json:"nodes"`
 }
 
+// SwitchMaster takes over the master role
+func (chunk *NodeChunkStore) SwitchMaster(failedProxyAddress string) error {
+	if chunk.Nodes[0].ProxyAddress == failedProxyAddress {
+		chunk.RolePosition = ChunkRoleSecondChunkMaster
+	} else if chunk.Nodes[halfChunkSize].ProxyAddress == failedProxyAddress {
+		chunk.RolePosition = ChunkRoleFirstChunkMaster
+	} else {
+		return ErrProxyNotFound
+	}
+	return nil
+}
+
 // Encode encodes json string
-func (store *ClusterStore) Encode() ([]byte, error) {
-	data, err := json.Marshal(store)
+func (cluster *ClusterStore) Encode() ([]byte, error) {
+	data, err := json.Marshal(cluster)
 	return data, errors.WithStack(err)
 }
 
 // Decode decodes json string
-func (store *ClusterStore) Decode(data []byte) error {
-	err := json.Unmarshal(data, store)
+func (cluster *ClusterStore) Decode(data []byte) error {
+	err := json.Unmarshal(data, cluster)
 	if err != nil {
 		log.Errorf("invalid cluster data '%v'", string(data))
 		return errors.WithStack(err)
 	}
 
-	for _, chunk := range store.Chunks {
+	for _, chunk := range cluster.Chunks {
+		if len(chunk.Nodes) != chunkSize {
+			err := fmt.Errorf("invalid nodes size: %+v", chunk.Nodes)
+			return errors.WithStack(err)
+		}
 		for _, node := range chunk.Nodes {
 			if node.NodeAddress == "" || node.ProxyAddress == "" {
 				return errors.WithStack(errMissingField)
 			}
+		}
+		if len(chunk.Slots) != halfChunkSize {
+			err := fmt.Errorf("invalid slots size: %+v", chunk.Nodes)
+			return errors.WithStack(err)
 		}
 		for _, nodeSlots := range chunk.Slots {
 			for _, slot := range nodeSlots {

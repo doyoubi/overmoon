@@ -185,6 +185,20 @@ func (txn *TxnBroker) initGlobalEpoch() error {
 	return nil
 }
 
+func (txn *TxnBroker) takeover(clusterName, failedProxyAddress string, globalEpoch uint64, cluster *ClusterStore) error {
+	chunk, err := cluster.FindChunkByProxy(failedProxyAddress)
+	if err != nil {
+		return err
+	}
+
+	err = chunk.SwitchMaster(failedProxyAddress)
+	if err != nil {
+		return err
+	}
+
+	return txn.updateCluster(clusterName, globalEpoch, cluster)
+}
+
 func (txn *TxnBroker) replaceProxy(clusterName, failedProxyAddress string, globalEpoch uint64, cluster *ClusterStore, possiblyAvailableProxies []string) (string, error) {
 	var newProxyAddress string
 
