@@ -128,14 +128,13 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
-		proxies, err := txn.consumeProxies(clusterName, nodeNum/2, possiblyAvailableProxies)
+		existingChunks := make([]*NodeChunkStore, 0)
+		chunks, err := txn.consumeChunks(clusterName, nodeNum/2, possiblyAvailableProxies, existingChunks)
 		if err != nil {
 			return err
 		}
-		cluster, err := broker.genCluster(proxies)
-		if err != nil {
-			return err
-		}
+		chunks = initChunkSlots(chunks)
+		cluster := &ClusterStore{Chunks: chunks}
 		txn.createCluster(clusterName, cluster)
 		return nil
 	})
@@ -144,58 +143,6 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 		return err
 	}
 	return nil
-}
-
-func (broker *EtcdMetaManipulationBroker) genCluster(proxyMetadata map[string]*ProxyStore) (*ClusterStore, error) {
-	proxyNum := uint64(len(proxyMetadata))
-	chunkNum := proxyNum / 2
-	gap := (MaxSlotNumber + proxyNum - 1) / proxyNum
-
-	chunks := make([]*NodeChunkStore, 0, chunkNum)
-	chunkNodes := make([]*NodeStore, 0, chunkSize)
-	chunkSlots := make([][]SlotRangeStore, 0, halfChunkSize)
-
-	var index uint64
-	for proxyAddress, meta := range proxyMetadata {
-		if len(meta.NodeAddresses) != 2 {
-			return nil, ErrInvalidNodesNum
-		}
-		end := (index+1)*gap - 1
-		if MaxSlotNumber < end {
-			end = MaxSlotNumber
-		}
-		slots := SlotRangeStore{
-			Start: index * gap,
-			End:   end,
-			Tag:   SlotRangeTagStore{TagType: NoneTag},
-		}
-		master := &NodeStore{
-			NodeAddress:  meta.NodeAddresses[0],
-			ProxyAddress: proxyAddress,
-		}
-		replica := &NodeStore{
-			NodeAddress:  meta.NodeAddresses[1],
-			ProxyAddress: proxyAddress,
-		}
-		chunkNodes = append(chunkNodes, master)
-		chunkNodes = append(chunkNodes, replica)
-		chunkSlots = append(chunkSlots, []SlotRangeStore{slots})
-
-		if index%2 == 1 {
-			chunk := &NodeChunkStore{
-				RolePosition: ChunkRoleNormalPosition,
-				Slots:        chunkSlots,
-				Nodes:        chunkNodes,
-			}
-			chunks = append(chunks, chunk)
-			chunkNodes = make([]*NodeStore, 0, chunkSize)
-			chunkSlots = make([][]SlotRangeStore, 0, halfChunkSize)
-		}
-
-		index++
-	}
-
-	return &ClusterStore{Chunks: chunks}, nil
 }
 
 // ReplaceProxy changes the proxy and return the new one.

@@ -36,10 +36,6 @@ func newChunkAllocator(proxies []string, expectedProxyNum uint64) (*chunkAllocat
 	return newChunkAllocatorWithExistingChunks(proxies, expectedProxyNum, chunks)
 }
 
-func newChunkAllocatorWithExistingCluster(proxies []string, expectedProxyNum uint64, cluster *ClusterStore) (*chunkAllocator, error) {
-	return newChunkAllocatorWithExistingChunks(proxies, expectedProxyNum, cluster.Chunks)
-}
-
 func newChunkAllocatorWithExistingChunks(proxies []string, expectedProxyNum uint64, chunks []*NodeChunkStore) (*chunkAllocator, error) {
 	if expectedProxyNum%2 != 0 {
 		return nil, ErrInvalidRequestedProxyNum

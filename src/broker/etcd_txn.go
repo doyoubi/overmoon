@@ -24,8 +24,56 @@ func NewTxnBroker(config *EtcdConfig, stm conc.STM) *TxnBroker {
 }
 
 // TODO: exclude failed proxies
-func (txn *TxnBroker) consumeChunks(clusterName string, proxyNum uint64, possiblyFreeProxies []string, cluster *ClusterStore) (map[string]*ProxyStore, error) {
-	return nil, nil
+func (txn *TxnBroker) consumeChunks(clusterName string, proxyNum uint64, possiblyFreeProxies []string, existingChunks []*NodeChunkStore) ([]*NodeChunkStore, error) {
+	alloc, err := newChunkAllocatorWithExistingChunks(possiblyFreeProxies, proxyNum, existingChunks)
+	if err != nil {
+		return nil, err
+	}
+	chunks, err := alloc.allocate()
+	if err != nil {
+		return nil, err
+	}
+
+	proxyAddresses := make([]string, 0, len(chunks)*2)
+	for _, chunk := range chunks {
+		proxyAddresses = append(proxyAddresses, chunk[0])
+		proxyAddresses = append(proxyAddresses, chunk[1])
+	}
+
+	proxies, err := txn.consumeProxies(clusterName, uint64(len(proxyAddresses)), proxyAddresses)
+
+	chunkStores := make([]*NodeChunkStore, 0, len(chunks))
+	for _, chunk := range chunks {
+		firstAddress := chunk[0]
+		secondAddress := chunk[1]
+		firstProxy := proxies[firstAddress]
+		secondProxy := proxies[secondAddress]
+		nodes := make([]*NodeStore, 0, chunkSize)
+		nodes = append(nodes, &NodeStore{
+			NodeAddress:  firstProxy.NodeAddresses[0],
+			ProxyAddress: firstAddress,
+		})
+		nodes = append(nodes, &NodeStore{
+			NodeAddress:  firstProxy.NodeAddresses[1],
+			ProxyAddress: firstAddress,
+		})
+		nodes = append(nodes, &NodeStore{
+			NodeAddress:  secondProxy.NodeAddresses[0],
+			ProxyAddress: secondAddress,
+		})
+		nodes = append(nodes, &NodeStore{
+			NodeAddress:  secondProxy.NodeAddresses[1],
+			ProxyAddress: secondAddress,
+		})
+		chunk := &NodeChunkStore{
+			RolePosition: ChunkRoleNormalPosition,
+			Slots:        [][]SlotRangeStore{},
+			Nodes:        nodes,
+		}
+		chunkStores = append(chunkStores, chunk)
+	}
+
+	return chunkStores, nil
 }
 
 // TODO: exclude failed proxies
@@ -266,4 +314,29 @@ func (txn *TxnBroker) addNodesToCluster(clusterName string, expectedNodeNum uint
 	}
 
 	return nil
+}
+
+func initChunkSlots(chunks []*NodeChunkStore) []*NodeChunkStore {
+	chunkNum := uint64(len(chunks))
+	proxyNum := chunkNum * 2
+	gap := (MaxSlotNumber + proxyNum - 1) / proxyNum
+	chunkSlots := make([][]SlotRangeStore, 0, halfChunkSize)
+	for index := uint64(0); index != proxyNum; index++ {
+		end := (index+1)*gap - 1
+		if MaxSlotNumber < end {
+			end = MaxSlotNumber
+		}
+		slots := SlotRangeStore{
+			Start: index * gap,
+			End:   end,
+			Tag:   SlotRangeTagStore{TagType: NoneTag},
+		}
+		chunkSlots = append(chunkSlots, []SlotRangeStore{slots})
+
+		if index%2 == 1 {
+			chunks[index/2].Slots = chunkSlots
+			chunkSlots = make([][]SlotRangeStore, 0, halfChunkSize)
+		}
+	}
+	return chunks
 }
