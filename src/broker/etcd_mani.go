@@ -20,6 +20,9 @@ var ErrClusterExists = errors.New("cluster already exists")
 // ErrInvalidNodesNum indicates invalid node number.
 var ErrInvalidNodesNum = errors.New("invalid node number")
 
+// ErrInvalidRequestedNodesNum indicates invalid node number.
+var ErrInvalidRequestedNodesNum = errors.New("invalid node number")
+
 // ErrHostExists indicates the proxy has already existed.
 var ErrHostExists = errors.New("host already existed")
 
@@ -249,4 +252,31 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 
 	// TODO: get proxy directly from cache or change api.
 	return broker.metaDataBroker.GetProxy(ctx, newProxyAddress)
+}
+
+// AddNodesToCluster adds chunks to cluster.
+func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context, clusterName string, expectedNodeNum uint64) error {
+	if expectedNodeNum%chunkSize != 0 {
+		return ErrInvalidRequestedNodesNum
+	}
+
+	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
+	if err != nil {
+		return err
+	}
+
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+
+		globalEpoch, _, cluster, err := txn.getCluster(clusterName)
+		if err != nil {
+			return err
+		}
+		return txn.addNodesToCluster(clusterName, expectedNodeNum, cluster, globalEpoch, possiblyAvailableProxies)
+	})
+
+	if err != nil {
+		log.Errorf("failed to add nodes. response: %v. error: %v", response, err)
+	}
+	return err
 }

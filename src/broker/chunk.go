@@ -11,7 +11,7 @@ import (
 // ErrNoChunkResource indicates that the remaining resources can't produce enough chunks.
 var ErrNoChunkResource = errors.New("no chunk resource")
 
-// ErrNoChunkResource indicates that the remaining resources can't produce enough chunks.
+// ErrInvalidRequestedProxyNum indicates that the remaining resources can't produce enough chunks.
 var ErrInvalidRequestedProxyNum = errors.New("invalid proxy number")
 
 type chunkError struct {
@@ -32,16 +32,22 @@ type chunkAllocator struct {
 }
 
 func newChunkAllocator(proxies []string, expectedProxyNum uint64) (*chunkAllocator, error) {
+	chunks := make([]*NodeChunkStore, 0)
+	return newChunkAllocatorWithExistingChunks(proxies, expectedProxyNum, chunks)
+}
+
+func newChunkAllocatorWithExistingCluster(proxies []string, expectedProxyNum uint64, cluster *ClusterStore) (*chunkAllocator, error) {
+	return newChunkAllocatorWithExistingChunks(proxies, expectedProxyNum, cluster.Chunks)
+}
+
+func newChunkAllocatorWithExistingChunks(proxies []string, expectedProxyNum uint64, chunks []*NodeChunkStore) (*chunkAllocator, error) {
 	if expectedProxyNum%2 != 0 {
 		return nil, ErrInvalidRequestedProxyNum
 	}
-	hostTable, err := initHostTable(proxies, expectedProxyNum)
+	hostTable, linkTable, err := initChunkTable(proxies, expectedProxyNum, chunks)
+	log.Infof("hostTable %+v, linkTable %+v", hostTable, linkTable)
 	if err != nil {
 		return nil, err
-	}
-	linkTable := make([][]int, len(hostTable), len(hostTable))
-	for i := range linkTable {
-		linkTable[i] = make([]int, len(hostTable), len(hostTable))
 	}
 	return &chunkAllocator{
 		linkTable: linkTable,
@@ -51,7 +57,6 @@ func newChunkAllocator(proxies []string, expectedProxyNum uint64) (*chunkAllocat
 
 func (alloc *chunkAllocator) allocate() ([][2]string, error) {
 	chunks := make([][2]string, 0)
-	log.Errorf("host table %+v", alloc.hostTable)
 	for getHostSum(alloc.hostTable) != 0 {
 		maxNum, maxIndex := getMaxHost(alloc.hostTable)
 		// check loop invariant
@@ -99,21 +104,63 @@ func (alloc *chunkAllocator) consumeLeastLink(maxIndex int) (peerAddress string,
 	return peerAddress, peerIndex, nil
 }
 
-func initHostTable(proxies []string, expectedProxyNum uint64) ([][]string, error) {
+func initChunkTable(proxies []string, expectedProxyNum uint64, chunks []*NodeChunkStore) ([][]string, [][]int, error) {
 	proxyMap := genProxyMap(proxies)
+	proxyMap = removeAdditionalProxies(proxyMap, expectedProxyNum)
 
-	hostTable := make([][]string, 0, len(proxyMap))
-	for _, proxies := range proxyMap {
-		hostTable = append(hostTable, proxies)
+	for _, chunk := range chunks {
+		for i, node := range chunk.Nodes {
+			if i%2 == 1 {
+				continue
+			}
+			ip, err := getIP(node.ProxyAddress)
+			if err != nil {
+				return nil, nil, err
+			}
+			if _, ok := proxyMap[ip]; !ok {
+				proxyMap[ip] = make([]string, 0)
+			}
+		}
 	}
 
-	hostTable = removeAdditionalProxies(hostTable, expectedProxyNum)
+	ipIndexMap := make(map[string]int, 0)
+	hostTable := make([][]string, 0, len(proxyMap))
+	ipIndex := 0
+	for ip, proxies := range proxyMap {
+		hostTable = append(hostTable, proxies)
+		ipIndexMap[ip] = ipIndex
+		ipIndex++
+	}
 
 	if uint64(getHostSum(hostTable)) != expectedProxyNum {
-		return nil, ErrNoChunkResource
+		return nil, nil, ErrNoChunkResource
 	}
 
-	return hostTable, validateHostTablePrecondition(hostTable)
+	linkTable := make([][]int, len(hostTable), len(hostTable))
+	for i := range linkTable {
+		linkTable[i] = make([]int, len(hostTable), len(hostTable))
+	}
+
+	for _, chunk := range chunks {
+		firstIP, err := getIP(chunk.Nodes[0].ProxyAddress)
+		if err != nil {
+			return nil, nil, err
+		}
+		secondIP, err := getIP(chunk.Nodes[halfChunkSize].ProxyAddress)
+		if err != nil {
+			return nil, nil, err
+		}
+		firstIndex, firstOk := ipIndexMap[firstIP]
+		secondIndex, secondOk := ipIndexMap[secondIP]
+		if !firstOk || !secondOk {
+			log.Errorf("invalid state, can't find ip in map %+v %s %s", ipIndexMap, firstIP, secondIP)
+			return nil, nil, err
+		}
+		linkTable[firstIndex][secondIndex]++
+		linkTable[secondIndex][firstIndex]++
+	}
+
+	return hostTable, linkTable, validateHostTablePrecondition(hostTable)
 }
 
 func genProxyMap(proxies []string) map[string][]string {
@@ -134,6 +181,10 @@ func genProxyMap(proxies []string) map[string][]string {
 
 func validateHostTablePrecondition(hostTable [][]string) error {
 	proxySum := getHostSum(hostTable)
+	// premise 1
+	if proxySum%2 != 0 {
+		return newChunkError("the number of proxy is not even")
+	}
 
 	// premise 4
 	maxNum, _ := getMaxHost(hostTable)
@@ -143,24 +194,31 @@ func validateHostTablePrecondition(hostTable [][]string) error {
 	return nil
 }
 
-func removeAdditionalProxies(hostTable [][]string, expectedProxyNum uint64) [][]string {
-	for proxySum := uint64(getHostSum(hostTable)); proxySum > expectedProxyNum; proxySum-- {
-		_, maxIndex := getMaxHost(hostTable)
-		maxHost := &hostTable[maxIndex]
-		*maxHost = (*maxHost)[:len(*maxHost)-1]
+func removeAdditionalProxies(proxyMap map[string][]string, expectedProxyNum uint64) map[string][]string {
+	for proxySum := uint64(getProxyMapSum(proxyMap)); proxySum > expectedProxyNum; proxySum-- {
+		_, maxIP := getProxyMapMaxHost(proxyMap)
+		proxyMap[maxIP] = proxyMap[maxIP][:len(proxyMap[maxIP])-1]
 	}
-	newHostTable := make([][]string, 0)
-	for _, proxies := range hostTable {
+	newProxyMap := make(map[string][]string, 0)
+	for ip, proxies := range proxyMap {
 		if len(proxies) > 0 {
-			newHostTable = append(newHostTable, proxies)
+			newProxyMap[ip] = proxies
 		}
 	}
-	return newHostTable
+	return newProxyMap
 }
 
 func getHostSum(hostTable [][]string) int {
 	var s int
 	for _, proxies := range hostTable {
+		s += len(proxies)
+	}
+	return s
+}
+
+func getProxyMapSum(proxyMap map[string][]string) int {
+	var s int
+	for _, proxies := range proxyMap {
 		s += len(proxies)
 	}
 	return s
@@ -176,6 +234,18 @@ func getMaxHost(hostTable [][]string) (maxNum int, maxIndex int) {
 		}
 	}
 	return maxNum, maxIndex
+}
+
+func getProxyMapMaxHost(proxyMap map[string][]string) (maxNum int, maxIP string) {
+	maxNum = 0
+	maxIP = ""
+	for ip, proxies := range proxyMap {
+		if len(proxies) > maxNum {
+			maxNum = len(proxies)
+			maxIP = ip
+		}
+	}
+	return maxNum, maxIP
 }
 
 func getIP(address string) (string, error) {

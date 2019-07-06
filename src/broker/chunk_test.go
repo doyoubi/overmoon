@@ -28,32 +28,41 @@ func TestGenProxyMap(t *testing.T) {
 
 func TestRemoveAdditionalProxies(t *testing.T) {
 	assert := assert.New(t)
-	hostTable := [][]string{
-		[]string{"127.0.0.1:1000"},
-		[]string{"127.0.0.2:2000"},
-		[]string{"127.0.0.3:3000"},
+	proxyMap := map[string][]string{
+		"127.0.0.1": []string{"127.0.0.1:1000"},
+		"127.0.0.2": []string{"127.0.0.2:2000", "127.0.0.2:2001"},
+		"127.0.0.3": []string{"127.0.0.3:3000"},
 	}
-	hostTable = removeAdditionalProxies(hostTable, 2)
-	assert.Equal(2, getHostSum(hostTable))
+	proxyMap = removeAdditionalProxies(proxyMap, 2)
+	assert.Equal(2, getProxyMapSum(proxyMap))
 }
 
-func TestInitHostTable(t *testing.T) {
+func TestInitChunkTable(t *testing.T) {
 	assert := assert.New(t)
+
+	emptyChunks := make([]*NodeChunkStore, 0)
 
 	proxies := []string{
 		"127.0.0.1:1000",
 		"127.0.0.2:2000",
 		"127.0.0.3:3000",
 	}
-	_, err := initHostTable(proxies, 4)
+	_, _, err := initChunkTable(proxies, 4, emptyChunks)
 	assert.Error(err)
 
-	hostTable, err := initHostTable(proxies, 2)
-	log.Errorf("host table %+v", hostTable)
+	hostTable, linkTable, err := initChunkTable(proxies, 2, emptyChunks)
 	assert.NoError(err)
 	assert.Equal(2, len(hostTable))
 	assert.Equal(1, len(hostTable[0]))
 	assert.Equal(1, len(hostTable[1]))
+
+	assert.Equal(len(hostTable), len(linkTable))
+	for _, row := range linkTable {
+		assert.Equal(len(hostTable), len(row))
+		for _, value := range row {
+			assert.Equal(0, value)
+		}
+	}
 
 	proxies = []string{
 		"127.0.0.1:1000",
@@ -61,12 +70,82 @@ func TestInitHostTable(t *testing.T) {
 		"127.0.0.2:2001",
 		"127.0.0.3:3000",
 	}
-	hostTable, err = initHostTable(proxies, 2)
-	log.Errorf("host table %+v", hostTable)
+	hostTable, linkTable, err = initChunkTable(proxies, 2, emptyChunks)
 	assert.NoError(err)
 	assert.Equal(2, len(hostTable))
 	assert.Equal(1, len(hostTable[0]))
 	assert.Equal(1, len(hostTable[1]))
+
+	assert.Equal(len(hostTable), len(linkTable))
+	for _, row := range linkTable {
+		assert.Equal(len(hostTable), len(row))
+		for _, value := range row {
+			assert.Equal(0, value)
+		}
+	}
+}
+
+func genExistingChunks() []*NodeChunkStore {
+	return []*NodeChunkStore{
+		&NodeChunkStore{
+			Nodes: []*NodeStore{
+				&NodeStore{
+					NodeAddress:  "127.0.0.1:7001",
+					ProxyAddress: "127.0.0.1:6001",
+				},
+				&NodeStore{
+					NodeAddress:  "127.0.0.1:7002",
+					ProxyAddress: "127.0.0.1:6001",
+				},
+				&NodeStore{
+					NodeAddress:  "127.0.0.2:7003",
+					ProxyAddress: "127.0.0.2:6002",
+				},
+				&NodeStore{
+					NodeAddress:  "127.0.0.2:7004",
+					ProxyAddress: "127.0.0.2:6002",
+				},
+			},
+		},
+	}
+}
+
+func TestInitChunkTableWithExistingChunks(t *testing.T) {
+	assert := assert.New(t)
+
+	existingChunks := genExistingChunks()
+
+	proxies := []string{
+		"127.0.0.1:1000",
+		"127.0.0.2:2000",
+		"127.0.0.3:3000",
+		"127.0.0.4:4000",
+	}
+	_, _, err := initChunkTable(proxies, 6, existingChunks)
+	assert.Error(err)
+
+	hostTable, linkTable, err := initChunkTable(proxies, 4, existingChunks)
+	log.Errorf("host table %+v", hostTable)
+	assert.NoError(err)
+	assert.Equal(4, len(hostTable))
+	for _, proxies := range hostTable {
+		if len(proxies) == 2 {
+			ip, err := getIP(proxies[0])
+			assert.NoError(err)
+			assert.Equal("127.0.0.1", ip)
+		}
+		assert.NotZero(len(proxies))
+	}
+
+	assert.Equal(len(hostTable), len(linkTable))
+	sum := 0
+	for _, row := range linkTable {
+		assert.Equal(len(hostTable), len(row))
+		for _, value := range row {
+			sum += value
+		}
+	}
+	assert.Equal(2, sum)
 }
 
 func TestOneChunk(t *testing.T) {
@@ -109,4 +188,26 @@ func TestMultiChunk(t *testing.T) {
 	for _, chunk := range chunks {
 		assert.Equal(2, len(chunk))
 	}
+}
+
+func TestAllocChunkWithExistingCluster(t *testing.T) {
+	assert := assert.New(t)
+
+	existingChunks := genExistingChunks()
+
+	proxies := []string{
+		"127.0.0.1:1000",
+		"127.0.0.2:2000",
+		"127.0.0.3:3000",
+	}
+	alloc, err := newChunkAllocatorWithExistingChunks(proxies, 2, existingChunks)
+	assert.NoError(err)
+	assert.NotNil(alloc)
+	chunks, err := alloc.allocate()
+	assert.NoError(err)
+	assert.Equal(1, len(chunks))
+
+	log.Errorf("chunks table %+v", chunks)
+	chunk := chunks[0]
+	assert.Equal(2, len(chunk))
 }

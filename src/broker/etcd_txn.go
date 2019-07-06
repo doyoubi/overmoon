@@ -24,6 +24,11 @@ func NewTxnBroker(config *EtcdConfig, stm conc.STM) *TxnBroker {
 }
 
 // TODO: exclude failed proxies
+func (txn *TxnBroker) consumeChunks(clusterName string, proxyNum uint64, possiblyFreeProxies []string, cluster *ClusterStore) (map[string]*ProxyStore, error) {
+	return nil, nil
+}
+
+// TODO: exclude failed proxies
 func (txn *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, possiblyFreeProxies []string) (map[string]*ProxyStore, error) {
 	// Etcd limits the operation number inside a transaction
 	const tryNum uint64 = 100
@@ -205,7 +210,7 @@ func (txn *TxnBroker) replaceProxy(clusterName, failedProxyAddress string, globa
 		return "", err
 	}
 	if len(proxies) != 1 {
-		return "", fmt.Errorf("expected 1 proxy, got %d", len(proxies))
+		return "", errors.WithStack(fmt.Errorf("expected 1 proxy, got %d", len(proxies)))
 	}
 	var newProxy *ProxyStore
 	for k, v := range proxies {
@@ -239,4 +244,26 @@ func (txn *TxnBroker) replaceProxy(clusterName, failedProxyAddress string, globa
 		return "", err
 	}
 	return newProxyAddress, txn.updateCluster(clusterName, globalEpoch, cluster)
+}
+
+func (txn *TxnBroker) addNodesToCluster(clusterName string, expectedNodeNum uint64, cluster *ClusterStore, globalEpoch uint64, possiblyAvailableProxies []string) error {
+	if expectedNodeNum%chunkSize != 0 {
+		return ErrInvalidRequestedNodesNum
+	}
+
+	nodeNum := uint64(len(cluster.Chunks)) * chunkSize
+	if nodeNum >= expectedNodeNum {
+		return nil
+	}
+
+	proxyNum := (expectedNodeNum - nodeNum) / halfChunkSize
+	proxies, err := txn.consumeProxies(clusterName, proxyNum, possiblyAvailableProxies)
+	if err != nil {
+		return err
+	}
+	if uint64(len(proxies)) != proxyNum {
+		return errors.WithStack(fmt.Errorf("expected %d proxy, got %d", proxyNum, len(proxies)))
+	}
+
+	return nil
 }
