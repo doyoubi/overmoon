@@ -29,6 +29,9 @@ var ErrHostExists = errors.New("host already existed")
 // ErrNoAvailableResource indicates no available resource.
 var ErrNoAvailableResource = errors.New("no available resource")
 
+// ErrAllocatedProxyInUse tells the client to try again.
+var ErrAllocatedProxyInUse = errors.New("allocated proxy is in use")
+
 // EtcdMetaManipulationBroker is mainly for metadata modification
 type EtcdMetaManipulationBroker struct {
 	metaDataBroker *EtcdMetaBroker
@@ -193,7 +196,7 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 	})
 
 	if err != nil {
-		log.Errorf("failed to replace proxy. response: %v. error: %v", response, err)
+		log.Errorf("failed to replace proxy. response: %+v. error: %v %s", response, err, err)
 		return nil, err
 	}
 

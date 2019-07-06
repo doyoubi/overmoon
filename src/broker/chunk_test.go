@@ -47,10 +47,10 @@ func TestInitChunkTable(t *testing.T) {
 		"127.0.0.2:2000",
 		"127.0.0.3:3000",
 	}
-	_, _, err := initChunkTable(proxies, 4, emptyChunks)
+	_, _, _, err := initChunkTable(proxies, 4, emptyChunks, false)
 	assert.Error(err)
 
-	hostTable, linkTable, err := initChunkTable(proxies, 2, emptyChunks)
+	hostTable, linkTable, _, err := initChunkTable(proxies, 2, emptyChunks, false)
 	assert.NoError(err)
 	assert.Equal(2, len(hostTable))
 	assert.Equal(1, len(hostTable[0]))
@@ -70,7 +70,7 @@ func TestInitChunkTable(t *testing.T) {
 		"127.0.0.2:2001",
 		"127.0.0.3:3000",
 	}
-	hostTable, linkTable, err = initChunkTable(proxies, 2, emptyChunks)
+	hostTable, linkTable, _, err = initChunkTable(proxies, 2, emptyChunks, false)
 	assert.NoError(err)
 	assert.Equal(2, len(hostTable))
 	assert.Equal(1, len(hostTable[0]))
@@ -121,11 +121,10 @@ func TestInitChunkTableWithExistingChunks(t *testing.T) {
 		"127.0.0.3:3000",
 		"127.0.0.4:4000",
 	}
-	_, _, err := initChunkTable(proxies, 6, existingChunks)
+	_, _, _, err := initChunkTable(proxies, 6, existingChunks, false)
 	assert.Error(err)
 
-	hostTable, linkTable, err := initChunkTable(proxies, 4, existingChunks)
-	log.Errorf("host table %+v", hostTable)
+	hostTable, linkTable, _, err := initChunkTable(proxies, 4, existingChunks, false)
 	assert.NoError(err)
 	assert.Equal(4, len(hostTable))
 	for _, proxies := range hostTable {
@@ -200,7 +199,7 @@ func TestAllocChunkWithExistingCluster(t *testing.T) {
 		"127.0.0.2:2000",
 		"127.0.0.3:3000",
 	}
-	alloc, err := newChunkAllocatorWithExistingChunks(proxies, 2, existingChunks)
+	alloc, err := newChunkAllocatorWithExistingChunks(proxies, 2, existingChunks, false)
 	assert.NoError(err)
 	assert.NotNil(alloc)
 	chunks, err := alloc.allocate()

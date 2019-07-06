@@ -400,6 +400,9 @@ func (broker *EtcdMetaBroker) getAvailableProxyAddresses(ctx context.Context) ([
 	if err != nil {
 		return nil, err
 	}
+	if len(proxyMetadata) == 0 {
+		return nil, ErrNoAvailableResource
+	}
 	possiblyAvailableProxies := make([]string, 0)
 	for address := range proxyMetadata {
 		possiblyAvailableProxies = append(possiblyAvailableProxies, address)

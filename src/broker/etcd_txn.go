@@ -25,7 +25,7 @@ func NewTxnBroker(config *EtcdConfig, stm conc.STM) *TxnBroker {
 
 // TODO: exclude failed proxies
 func (txn *TxnBroker) consumeChunks(clusterName string, proxyNum uint64, possiblyFreeProxies []string, existingChunks []*NodeChunkStore) ([]*NodeChunkStore, error) {
-	alloc, err := newChunkAllocatorWithExistingChunks(possiblyFreeProxies, proxyNum, existingChunks)
+	alloc, err := newChunkAllocatorWithExistingChunks(possiblyFreeProxies, proxyNum, existingChunks, false)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +74,35 @@ func (txn *TxnBroker) consumeChunks(clusterName string, proxyNum uint64, possibl
 	}
 
 	return chunkStores, nil
+}
+
+func (txn *TxnBroker) consumeHalfChunk(clusterName, failedProxyAddress, peerProxyAddress string, possiblyFreeProxies []string, existingChunks []*NodeChunkStore) (string, *ProxyStore, error) {
+	alloc, err := newChunkReplaceProxyAllocator(possiblyFreeProxies, existingChunks)
+	if err != nil {
+		return "", nil, err
+	}
+
+	newProxyAddress, err := alloc.replaceProxy(failedProxyAddress, peerProxyAddress)
+	if err != nil {
+		return "", nil, err
+	}
+
+	proxies, err := txn.consumeProxies(clusterName, 1, []string{newProxyAddress})
+	if err != nil {
+		return "", nil, err
+	}
+
+	if len(proxies) == 0 {
+		return "", nil, ErrAllocatedProxyInUse
+	}
+	if len(proxies) != 1 {
+		return "", nil, errors.WithStack(fmt.Errorf("expected 1 proxy, got %d", len(proxies)))
+	}
+	var newProxy *ProxyStore
+	for _, proxy := range proxies {
+		newProxy = proxy
+	}
+	return newProxyAddress, newProxy, nil
 }
 
 // TODO: exclude failed proxies
@@ -251,46 +280,44 @@ func (txn *TxnBroker) takeover(clusterName, failedProxyAddress string, globalEpo
 }
 
 func (txn *TxnBroker) replaceProxy(clusterName, failedProxyAddress string, globalEpoch uint64, cluster *ClusterStore, possiblyAvailableProxies []string) (string, error) {
-	var newProxyAddress string
+	var newProxyAddress, peerProxyAddress string
 
-	proxies, err := txn.consumeProxies(clusterName, 1, possiblyAvailableProxies)
+	chunk, err := cluster.FindChunkByProxy(failedProxyAddress)
 	if err != nil {
 		return "", err
 	}
-	if len(proxies) != 1 {
-		return "", errors.WithStack(fmt.Errorf("expected 1 proxy, got %d", len(proxies)))
+
+	if chunk.Nodes[0].ProxyAddress == failedProxyAddress {
+		peerProxyAddress = chunk.Nodes[halfChunkSize].ProxyAddress
+	} else if chunk.Nodes[halfChunkSize].ProxyAddress == failedProxyAddress {
+		peerProxyAddress = chunk.Nodes[0].ProxyAddress
 	}
-	var newProxy *ProxyStore
-	for k, v := range proxies {
-		newProxyAddress = k
-		newProxy = v
+	if peerProxyAddress == "" {
+		return "", errors.WithStack(fmt.Errorf("invalid state, can't found %s in chunk", failedProxyAddress))
+	}
+
+	newProxyAddress, newProxy, err := txn.consumeHalfChunk(clusterName, failedProxyAddress, peerProxyAddress, possiblyAvailableProxies, cluster.Chunks)
+	if err != nil {
+		return "", err
 	}
 
 	exists := false
-	for _, chunk := range cluster.Chunks {
-		for i, node := range chunk.Nodes {
-			if node.ProxyAddress == failedProxyAddress && i%2 == 0 {
-				node.ProxyAddress = newProxyAddress
-				node.NodeAddress = newProxy.NodeAddresses[0]
-			} else if node.ProxyAddress == failedProxyAddress && i%2 == 1 {
-				node.ProxyAddress = newProxyAddress
-				node.NodeAddress = newProxy.NodeAddresses[1]
-				exists = true
-				break
-			}
-		}
-		if exists {
-			break
+	for i, node := range chunk.Nodes {
+		if node.ProxyAddress == failedProxyAddress {
+			node.ProxyAddress = newProxyAddress
+			node.NodeAddress = newProxy.NodeAddresses[i%2]
+			exists = true
 		}
 	}
 	if !exists {
-		return "", fmt.Errorf("cluster %s does not include %s", clusterName, failedProxyAddress)
+		return "", errors.WithStack(fmt.Errorf("cluster %s does not include %s", clusterName, failedProxyAddress))
 	}
 
 	err = txn.setFailed(failedProxyAddress)
 	if err != nil {
 		return "", err
 	}
+	log.Infof("after replacing, cluster %+v", cluster)
 	return newProxyAddress, txn.updateCluster(clusterName, globalEpoch, cluster)
 }
 

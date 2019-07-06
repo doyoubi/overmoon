@@ -142,7 +142,8 @@ func TestReplaceProxy(t *testing.T) {
 	assert.NotNil(proxy3)
 	assert.Equal(0, len(proxy3.Nodes))
 
-	maniBroker.ReplaceProxy(ctx, "127.0.0.1:6001")
+	_, err = maniBroker.ReplaceProxy(ctx, "127.0.0.1:6001")
+	assert.NoError(err)
 	metaBroker.ClearCache()
 
 	cluster, err = metaBroker.GetCluster(ctx, clusterName)
