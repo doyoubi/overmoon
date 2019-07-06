@@ -51,26 +51,26 @@ func (txn *TxnBroker) consumeChunks(clusterName string, proxyNum uint64, possibl
 		secondAddress := chunk[1]
 		firstProxy := proxies[firstAddress]
 		secondProxy := proxies[secondAddress]
-		nodes := make([]*NodeStore, 0, chunkSize)
-		nodes = append(nodes, &NodeStore{
+		nodes := [4]*NodeStore{}
+		nodes[0] = &NodeStore{
 			NodeAddress:  firstProxy.NodeAddresses[0],
 			ProxyAddress: firstAddress,
-		})
-		nodes = append(nodes, &NodeStore{
+		}
+		nodes[1] = &NodeStore{
 			NodeAddress:  firstProxy.NodeAddresses[1],
 			ProxyAddress: firstAddress,
-		})
-		nodes = append(nodes, &NodeStore{
+		}
+		nodes[2] = &NodeStore{
 			NodeAddress:  secondProxy.NodeAddresses[0],
 			ProxyAddress: secondAddress,
-		})
-		nodes = append(nodes, &NodeStore{
+		}
+		nodes[3] = &NodeStore{
 			NodeAddress:  secondProxy.NodeAddresses[1],
 			ProxyAddress: secondAddress,
-		})
+		}
 		chunk := &NodeChunkStore{
 			RolePosition: ChunkRoleNormalPosition,
-			Slots:        [][]SlotRangeStore{[]SlotRangeStore{}, []SlotRangeStore{}},
+			Slots:        [2][]SlotRangeStore{[]SlotRangeStore{}, []SlotRangeStore{}},
 			Nodes:        nodes,
 		}
 		chunkStores = append(chunkStores, chunk)
@@ -336,7 +336,7 @@ func (txn *TxnBroker) addNodesToCluster(clusterName string, expectedNodeNum uint
 	}
 
 	proxyNum := (expectedNodeNum - nodeNum) / halfChunkSize
-	log.Infof("try to consume chunks %s %d %d", clusterName, proxyNum, possiblyAvailableProxies)
+	log.Infof("try to consume chunks %s %d %v", clusterName, proxyNum, possiblyAvailableProxies)
 	chunks, err := txn.consumeChunks(clusterName, proxyNum, possiblyAvailableProxies, cluster.Chunks)
 	if err != nil {
 		return err
@@ -354,7 +354,7 @@ func initChunkSlots(chunks []*NodeChunkStore) []*NodeChunkStore {
 	chunkNum := uint64(len(chunks))
 	proxyNum := chunkNum * 2
 	gap := (MaxSlotNumber + proxyNum - 1) / proxyNum
-	chunkSlots := make([][]SlotRangeStore, 0, halfChunkSize)
+	chunkSlots := [2][]SlotRangeStore{}
 	for index := uint64(0); index != proxyNum; index++ {
 		end := (index+1)*gap - 1
 		if MaxSlotNumber < end {
@@ -365,11 +365,11 @@ func initChunkSlots(chunks []*NodeChunkStore) []*NodeChunkStore {
 			End:   end,
 			Tag:   SlotRangeTagStore{TagType: NoneTag},
 		}
-		chunkSlots = append(chunkSlots, []SlotRangeStore{slots})
+		chunkSlots[index%2] = []SlotRangeStore{slots}
 
 		if index%2 == 1 {
 			chunks[index/2].Slots = chunkSlots
-			chunkSlots = make([][]SlotRangeStore, 0, halfChunkSize)
+			chunkSlots = [2][]SlotRangeStore{}
 		}
 	}
 	return chunks

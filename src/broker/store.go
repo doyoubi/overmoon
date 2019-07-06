@@ -104,8 +104,8 @@ const (
 // NodeChunkStore stores 4 nodes as a group
 type NodeChunkStore struct {
 	RolePosition ChunkRolePosition
-	Slots        [][]SlotRangeStore `json:"slots"`
-	Nodes        []*NodeStore       `json:"nodes"`
+	Slots        [2][]SlotRangeStore `json:"slots"`
+	Nodes        [4]*NodeStore       `json:"nodes"`
 }
 
 // SwitchMaster takes over the master role
@@ -217,7 +217,7 @@ func parseNodes(clusterData []byte) ([]*Node, error) {
 			err = fmt.Errorf("invalid slots of chunk %v", chunk.Slots)
 			return nil, errors.WithStack(err)
 		}
-		slots = append(slots, chunk.Slots...)
+		slots = append(slots, chunk.Slots[:]...)
 		chunkRoles = append(chunkRoles, chunk.RolePosition)
 	}
 

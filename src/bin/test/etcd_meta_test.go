@@ -47,7 +47,7 @@ func prepareData(assert *assert.Assertions) {
 	}
 	chunk1 := &broker.NodeChunkStore{
 		RolePosition: broker.ChunkRoleNormalPosition,
-		Slots: [][]broker.SlotRangeStore{
+		Slots: [2][]broker.SlotRangeStore{
 			[]broker.SlotRangeStore{broker.SlotRangeStore{
 				Start: 0, End: 10000, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag},
 			}},
@@ -57,7 +57,7 @@ func prepareData(assert *assert.Assertions) {
 				broker.SlotRangeStore{Start: 16383, End: 16383, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
 			},
 		},
-		Nodes: []*broker.NodeStore{node1, node2, node3, node4},
+		Nodes: [4]*broker.NodeStore{node1, node2, node3, node4},
 	}
 	cluster := &broker.ClusterStore{
 		Chunks: []*broker.NodeChunkStore{chunk1},

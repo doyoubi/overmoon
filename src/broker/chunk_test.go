@@ -88,7 +88,7 @@ func TestInitChunkTable(t *testing.T) {
 func genExistingChunks() []*NodeChunkStore {
 	return []*NodeChunkStore{
 		&NodeChunkStore{
-			Nodes: []*NodeStore{
+			Nodes: [4]*NodeStore{
 				&NodeStore{
 					NodeAddress:  "127.0.0.1:7001",
 					ProxyAddress: "127.0.0.1:6001",

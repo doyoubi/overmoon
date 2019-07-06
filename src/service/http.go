@@ -265,7 +265,7 @@ func (proxy *HTTPBrokerProxy) handleAddNodes(c *gin.Context) {
 
 	err = proxy.maniBroker.AddNodesToCluster(proxy.ctx, clusterName, payload.ExpectedNodeNumber)
 	if err == broker.ErrNoAvailableResource {
-		c.JSON(400, gin.H{
+		c.JSON(409, gin.H{
 			"error": "no available resource",
 		})
 		return
