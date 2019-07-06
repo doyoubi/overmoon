@@ -41,7 +41,7 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	r.POST("/api/clusters", proxy.handleAddCluster)
 	r.POST("/api/proxies/failover/:proxy_address", proxy.handleReplaceProxy)
 	r.POST("/api/proxies/nodes", proxy.handleAddHost)
-	// r.PUT("/api/clusters/nodes/:clusterName")
+	r.PUT("/api/clusters/nodes/:clusterName", proxy.handleAddNodes)
 
 	return r.Run(proxy.address)
 }
@@ -222,7 +222,6 @@ type addHostPayload struct {
 	Nodes        []string `json:"nodes"`
 }
 
-// POST /api/hosts
 func (proxy *HTTPBrokerProxy) handleAddHost(c *gin.Context) {
 	var payload addHostPayload
 	err := c.BindJSON(&payload)
@@ -247,4 +246,34 @@ func (proxy *HTTPBrokerProxy) handleAddHost(c *gin.Context) {
 		return
 	}
 	c.String(200, "")
+}
+
+type addHNodesPayload struct {
+	ExpectedNodeNumber uint64 `json:"expected_node_number"`
+}
+
+func (proxy *HTTPBrokerProxy) handleAddNodes(c *gin.Context) {
+	clusterName := c.Param("clusterName")
+	var payload addHNodesPayload
+	err := c.BindJSON(&payload)
+	if err != nil {
+		c.JSON(400, gin.H{
+			"error": fmt.Sprintf("failed to get json payload %s", err),
+		})
+		return
+	}
+
+	err = proxy.maniBroker.AddNodesToCluster(proxy.ctx, clusterName, payload.ExpectedNodeNumber)
+	if err == broker.ErrNoAvailableResource {
+		c.JSON(400, gin.H{
+			"error": "no available resource",
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(500, gin.H{
+			"error": fmt.Sprintf("failed to add nodes to cluster %s: %s", clusterName, err),
+		})
+		return
+	}
 }

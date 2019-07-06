@@ -41,6 +41,9 @@ func (txn *TxnBroker) consumeChunks(clusterName string, proxyNum uint64, possibl
 	}
 
 	proxies, err := txn.consumeProxies(clusterName, uint64(len(proxyAddresses)), proxyAddresses)
+	if err != nil {
+		return nil, err
+	}
 
 	chunkStores := make([]*NodeChunkStore, 0, len(chunks))
 	for _, chunk := range chunks {
@@ -67,7 +70,7 @@ func (txn *TxnBroker) consumeChunks(clusterName string, proxyNum uint64, possibl
 		})
 		chunk := &NodeChunkStore{
 			RolePosition: ChunkRoleNormalPosition,
-			Slots:        [][]SlotRangeStore{},
+			Slots:        [][]SlotRangeStore{[]SlotRangeStore{}, []SlotRangeStore{}},
 			Nodes:        nodes,
 		}
 		chunkStores = append(chunkStores, chunk)
@@ -214,6 +217,7 @@ func (txn *TxnBroker) getCluster(clusterName string) (uint64, uint64, *ClusterSt
 }
 
 func (txn *TxnBroker) updateCluster(clusterName string, oldGlobalEpoch uint64, cluster *ClusterStore) error {
+	log.Infof("update cluster %+v", cluster)
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", txn.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", txn.config.PathPrefix, clusterName)
 	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", txn.config.PathPrefix, clusterName)
@@ -332,15 +336,18 @@ func (txn *TxnBroker) addNodesToCluster(clusterName string, expectedNodeNum uint
 	}
 
 	proxyNum := (expectedNodeNum - nodeNum) / halfChunkSize
-	proxies, err := txn.consumeProxies(clusterName, proxyNum, possiblyAvailableProxies)
+	log.Infof("try to consume chunks %s %d %d", clusterName, proxyNum, possiblyAvailableProxies)
+	chunks, err := txn.consumeChunks(clusterName, proxyNum, possiblyAvailableProxies, cluster.Chunks)
 	if err != nil {
 		return err
 	}
-	if uint64(len(proxies)) != proxyNum {
-		return errors.WithStack(fmt.Errorf("expected %d proxy, got %d", proxyNum, len(proxies)))
+	log.Infof("get %d chunks", len(chunks))
+	if uint64(len(chunks))*2 != proxyNum {
+		return errors.WithStack(fmt.Errorf("expected %d proxy, got %d chunks", proxyNum, len(chunks)))
 	}
 
-	return nil
+	cluster.Chunks = append(cluster.Chunks, chunks...)
+	return txn.updateCluster(clusterName, globalEpoch, cluster)
 }
 
 func initChunkSlots(chunks []*NodeChunkStore) []*NodeChunkStore {

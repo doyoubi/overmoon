@@ -230,3 +230,57 @@ func TestCreateCluster(t *testing.T) {
 	assert.Equal(uint64(broker.MaxSlotNumber/2), nodes[2].Slots[0].Start)
 	assert.Equal(uint64(broker.MaxSlotNumber-1), nodes[2].Slots[0].End)
 }
+
+func TestAddNodes(t *testing.T) {
+	assert := assert.New(t)
+	initManiData(assert)
+	maniBroker := genManiBroker(assert)
+	metaBroker := maniBroker.GetMetaBroker()
+	ctx := context.Background()
+
+	err := maniBroker.InitGlobalEpoch()
+	assert.NoError(err)
+
+	nodes1 := []string{
+		"127.0.0.1:7001",
+		"127.0.0.1:7002",
+	}
+	nodes2 := []string{
+		"127.0.0.2:7001",
+		"127.0.0.2:7002",
+	}
+	nodes3 := []string{
+		"127.0.0.3:7001",
+		"127.0.0.3:7002",
+	}
+	nodes4 := []string{
+		"127.0.0.4:7001",
+		"127.0.0.4:7002",
+	}
+	clusterName := "test_create_cluster"
+
+	err = maniBroker.AddHost(ctx, "127.0.0.1:6001", nodes1)
+	assert.NoError(err)
+	err = maniBroker.AddHost(ctx, "127.0.0.2:6002", nodes2)
+	assert.NoError(err)
+	err = maniBroker.CreateCluster(ctx, clusterName, 4)
+	assert.NoError(err)
+
+	cluster, err := metaBroker.GetCluster(ctx, clusterName)
+	assert.NoError(err)
+	assert.Equal(4, len(cluster.Nodes))
+
+	err = maniBroker.AddHost(ctx, "127.0.0.3:6003", nodes3)
+	assert.NoError(err)
+	err = maniBroker.AddHost(ctx, "127.0.0.4:6004", nodes4)
+	assert.NoError(err)
+
+	metaBroker.ClearCache()
+	err = maniBroker.AddNodesToCluster(ctx, clusterName, 8)
+	assert.NoError(err)
+
+	metaBroker.ClearCache()
+	cluster, err = metaBroker.GetCluster(ctx, clusterName)
+	assert.NoError(err)
+	assert.Equal(8, len(cluster.Nodes))
+}

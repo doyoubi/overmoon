@@ -212,7 +212,11 @@ func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context,
 
 	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
 	if err != nil {
+		log.Infof("node number already satisfied %s", clusterName)
 		return err
+	}
+	if len(possiblyAvailableProxies) == 0 {
+		return ErrNoAvailableResource
 	}
 
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
@@ -222,6 +226,7 @@ func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context,
 		if err != nil {
 			return err
 		}
+		log.Infof("start to add nodes to cluster %s", clusterName)
 		return txn.addNodesToCluster(clusterName, expectedNodeNum, cluster, globalEpoch, possiblyAvailableProxies)
 	})
 
