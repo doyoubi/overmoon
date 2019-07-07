@@ -248,3 +248,16 @@ func (broker *EtcdMetaManipulationBroker) MigrateSlots(ctx context.Context, clus
 	}
 	return err
 }
+
+// CommitMigration finishes the migration.
+func (broker *EtcdMetaManipulationBroker) CommitMigration(ctx context.Context, task MigrationTaskMeta) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		return txn.commitMigration(task)
+	})
+
+	if err != nil {
+		log.Errorf("failed to commit migration. response: %v. error: %v", response, err)
+	}
+	return err
+}

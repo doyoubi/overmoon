@@ -390,3 +390,16 @@ func (txn *TxnBroker) migrateSlots(clusterName string) error {
 	}
 	return txn.updateCluster(clusterName, globalEpoch+1, cluster)
 }
+
+func (txn *TxnBroker) commitMigration(task MigrationTaskMeta) error {
+	globalEpoch, _, cluster, err := txn.getCluster(task.DBName)
+	if err != nil {
+		return err
+	}
+
+	err = cluster.CommitMigration(task.Slots)
+	if err != nil {
+		return err
+	}
+	return txn.updateCluster(task.DBName, globalEpoch+1, cluster)
+}

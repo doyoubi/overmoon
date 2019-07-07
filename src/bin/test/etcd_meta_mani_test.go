@@ -292,6 +292,72 @@ func TestAddNodes(t *testing.T) {
 	cluster, err = metaBroker.GetCluster(ctx, clusterName)
 	assert.NoError(err)
 	assert.Equal(8, len(cluster.Nodes))
+	for i, node := range cluster.Nodes {
+		if node.Repl.Role == broker.MasterRole {
+			if i < 4 {
+				assert.Equal(2, len(node.Slots))
+			} else {
+				assert.Equal(1, len(node.Slots))
+			}
+		} else {
+			assert.Equal(0, len(node.Slots))
+		}
+	}
+
+	task := broker.MigrationTaskMeta{
+		DBName: clusterName,
+		Slots: broker.SlotRange{
+			Start: 0,
+			End:   4095,
+			Tag: broker.SlotRangeTag{
+				TagType: broker.NoneTag,
+			},
+		},
+	}
+	err = maniBroker.CommitMigration(ctx, task)
+	assert.Equal(broker.ErrInvalidRequestedMigrationSlotRange, err)
+
+	task = broker.MigrationTaskMeta{
+		DBName: clusterName,
+		Slots: broker.SlotRange{
+			Start: 4096,
+			End:   8191,
+			Tag: broker.SlotRangeTag{
+				TagType: broker.MigratingTag,
+				Meta: &broker.MigrationMeta{
+					Epoch:           cluster.Epoch,
+					SrcNodeAddress:  cluster.Nodes[0].Address,
+					SrcProxyAddress: cluster.Nodes[0].ProxyAddress,
+					DstNodeAddress:  cluster.Nodes[4].Address,
+					DstProxyAddress: cluster.Nodes[4].ProxyAddress,
+				},
+			},
+		},
+	}
+	err = maniBroker.CommitMigration(ctx, task)
+	assert.NoError(err)
+
+	task.Slots = broker.SlotRange{
+		Start: 12288,
+		End:   16383,
+		Tag: broker.SlotRangeTag{
+			TagType: broker.MigratingTag,
+			Meta: &broker.MigrationMeta{
+				Epoch:           cluster.Epoch,
+				SrcNodeAddress:  cluster.Nodes[2].Address,
+				SrcProxyAddress: cluster.Nodes[2].ProxyAddress,
+				DstNodeAddress:  cluster.Nodes[6].Address,
+				DstProxyAddress: cluster.Nodes[6].ProxyAddress,
+			},
+		},
+	}
+	err = maniBroker.CommitMigration(ctx, task)
+	assert.NoError(err)
+
+	metaBroker.ClearCache()
+	cluster, err = metaBroker.GetCluster(ctx, clusterName)
+	assert.NoError(err)
+	assert.Equal(8, len(cluster.Nodes))
 	for _, node := range cluster.Nodes {
 		if node.Repl.Role == broker.MasterRole {
 			assert.Equal(1, len(node.Slots))

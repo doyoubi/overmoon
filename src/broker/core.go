@@ -20,6 +20,7 @@ type MetaDataBroker interface {
 type MetaManipulationBroker interface {
 	// Basic API
 	ReplaceProxy(ctx context.Context, proxyAddress string) (*Host, error)
+	CommitMigration(ctx context.Context, task MigrationTaskMeta) error
 
 	// Extented API
 	InitGlobalEpoch() error
@@ -52,6 +53,12 @@ type MigrationMeta struct {
 	SrcNodeAddress  string `json:"src_node_address"`
 	DstProxyAddress string `json:"dst_proxy_address"`
 	DstNodeAddress  string `json:"dst_node_address"`
+}
+
+// MigrationTaskMeta denotes the migration task.
+type MigrationTaskMeta struct {
+	DBName string    `json:"db_name"`
+	Slots  SlotRange `json:"slot_range"`
 }
 
 // Role could be 'master' or 'replica'.
