@@ -10,6 +10,14 @@ import (
 
 var errMissingField = errors.New("missing field")
 
+// ErrCanNotMigrate indicates that the cluster does not
+// have enough empty chunks to do the migration.
+var ErrCanNotMigrate = errors.New("cluster cannot migrate")
+
+// ErrAlreadyMigrating indicates the cluster has already
+// started migration.
+var ErrAlreadyMigrating = errors.New("cluster is migrating")
+
 // ProxyStore stores the basic proxy metadata
 type ProxyStore struct {
 	ProxyIndex    uint64   `json:"proxy_index"`
@@ -87,6 +95,81 @@ func (cluster *ClusterStore) FindChunkByProxy(proxyAddress string) (*NodeChunkSt
 		}
 	}
 	return nil, ErrProxyNotFound
+}
+
+// SplitSlots splits the slots from the first half to the second half.
+func (cluster *ClusterStore) SplitSlots(newEpoch uint64) error {
+	if len(cluster.Chunks) < 2 {
+		log.Info("Cannot migrate slots, number of chunks is not even.")
+		return ErrCanNotMigrate
+	}
+	if len(cluster.Chunks)%2 != 0 {
+		return errors.WithStack(fmt.Errorf("invalid chunk number %d", len(cluster.Chunks)))
+	}
+	halfChunkNum := uint64(len(cluster.Chunks) / 2)
+
+	for i, srcChunk := range cluster.Chunks {
+		srcChunkIndex := uint64(i)
+		dstChunkIndex := srcChunkIndex + halfChunkNum
+		if srcChunkIndex >= halfChunkNum {
+			break
+		}
+
+		if len(srcChunk.Slots[0]) == 0 || len(srcChunk.Slots[1]) == 0 {
+			log.Info("Cannot migrate slots, slot of source chunks is empty")
+			return ErrCanNotMigrate
+		}
+		// For simplicity, we assume they just have only one slot range.
+		if len(srcChunk.Slots[0]) != 1 || len(srcChunk.Slots[1]) != 1 {
+			log.Info("Cannot migrate slots, number of slot ranges is not 1")
+			return ErrCanNotMigrate
+		}
+		if srcChunk.Slots[0][0].Tag.TagType != NoneTag || srcChunk.Slots[1][0].Tag.TagType != NoneTag {
+			return ErrAlreadyMigrating
+		}
+
+		dstChunk := cluster.Chunks[dstChunkIndex]
+		log.Infof("srcChunk %+v, dstChunk %+v", srcChunk, dstChunk)
+
+		if len(dstChunk.Slots[0]) > 0 || len(dstChunk.Slots[1]) > 0 {
+			log.Info("Cannot migrate slots, slot of destination chunks is not empty")
+			return ErrCanNotMigrate
+		}
+
+		for j := 0; j != 2; j++ {
+			start := srcChunk.Slots[j][0].Start
+			end := srcChunk.Slots[j][0].End
+			if start == end {
+				log.Infof("Cannot migrate slots, cluster reaches the maximum size.")
+				return ErrCanNotMigrate
+			}
+			m := (start + end) / 2
+			// we can prove that: start <= m < end and m + 1 <= end
+			srcChunk.Slots[j][0].End = m
+			srcChunk.Slots[j][0].Tag = SlotRangeTagStore{
+				TagType: MigratingTag,
+				Meta: &MigrationMetaStore{
+					Epoch:         newEpoch,
+					SrcProxyIndex: srcChunkIndex * halfChunkSize,
+					DstProxyIndex: dstChunkIndex * halfChunkSize,
+				},
+			}
+
+			dstChunk.Slots[j] = []SlotRangeStore{SlotRangeStore{
+				Start: m + 1,
+				End:   end,
+				Tag: SlotRangeTagStore{
+					TagType: ImportingTag,
+					Meta: &MigrationMetaStore{
+						Epoch:         newEpoch,
+						SrcProxyIndex: srcChunkIndex * halfChunkSize,
+						DstProxyIndex: dstChunkIndex * halfChunkSize,
+					},
+				},
+			}}
+		}
+	}
+	return nil
 }
 
 // ChunkRolePosition indicates the roles in the chunk

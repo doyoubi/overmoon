@@ -283,4 +283,20 @@ func TestAddNodes(t *testing.T) {
 	cluster, err = metaBroker.GetCluster(ctx, clusterName)
 	assert.NoError(err)
 	assert.Equal(8, len(cluster.Nodes))
+
+	// test migration
+	err = maniBroker.MigrateSlots(ctx, clusterName)
+	assert.NoError(err)
+	metaBroker.ClearCache()
+
+	cluster, err = metaBroker.GetCluster(ctx, clusterName)
+	assert.NoError(err)
+	assert.Equal(8, len(cluster.Nodes))
+	for _, node := range cluster.Nodes {
+		if node.Repl.Role == broker.MasterRole {
+			assert.Equal(1, len(node.Slots))
+		} else {
+			assert.Equal(0, len(node.Slots))
+		}
+	}
 }

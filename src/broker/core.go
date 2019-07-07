@@ -26,6 +26,7 @@ type MetaManipulationBroker interface {
 	CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error
 	AddHost(ctx context.Context, address string, nodes []string) error
 	AddNodesToCluster(ctx context.Context, clusterName string, expectedNodeNum uint64) error
+	MigrateSlots(ctx context.Context, clusterName string) error
 }
 
 // SlotRange is the slot range of redis cluster. Start and End will be the same the single slot.

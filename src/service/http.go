@@ -270,6 +270,12 @@ func (proxy *HTTPBrokerProxy) handleAddNodes(c *gin.Context) {
 		})
 		return
 	}
+	if err == broker.ErrClusterNotFound {
+		c.JSON(404, gin.H{
+			"error": fmt.Sprintf("cluster %s not found", clusterName),
+		})
+		return
+	}
 	if err != nil {
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("failed to add nodes to cluster %s: %s", clusterName, err),

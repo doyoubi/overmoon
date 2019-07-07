@@ -235,3 +235,16 @@ func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context,
 	}
 	return err
 }
+
+// MigrateSlots splits the slots to another half cluster.
+func (broker *EtcdMetaManipulationBroker) MigrateSlots(ctx context.Context, clusterName string) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		return txn.migrateSlots(clusterName)
+	})
+
+	if err != nil {
+		log.Errorf("failed to start migration. response: %v. error: %v", response, err)
+	}
+	return err
+}

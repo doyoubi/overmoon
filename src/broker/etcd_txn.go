@@ -198,6 +198,10 @@ func (txn *TxnBroker) getCluster(clusterName string) (uint64, uint64, *ClusterSt
 	clusterEpochStr := txn.stm.Get(clusterEpochKey)
 	clusterNodesStr := txn.stm.Get(clusterNodesKey)
 
+	if clusterEpochStr == "" {
+		return 0, 0, nil, ErrClusterNotFound
+	}
+
 	globalEpoch, err := strconv.ParseUint(globalEpochStr, 10, 64)
 	if err != nil {
 		return 0, 0, nil, errors.WithStack(err)
@@ -216,13 +220,12 @@ func (txn *TxnBroker) getCluster(clusterName string) (uint64, uint64, *ClusterSt
 	return globalEpoch, clusterEpoch, cluster, nil
 }
 
-func (txn *TxnBroker) updateCluster(clusterName string, oldGlobalEpoch uint64, cluster *ClusterStore) error {
+func (txn *TxnBroker) updateCluster(clusterName string, newGlobalEpoch uint64, cluster *ClusterStore) error {
 	log.Infof("update cluster %+v", cluster)
 	globalEpochKey := fmt.Sprintf("%s/global_epoch", txn.config.PathPrefix)
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", txn.config.PathPrefix, clusterName)
 	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", txn.config.PathPrefix, clusterName)
 
-	newGlobalEpoch := oldGlobalEpoch + 1
 	newGlobalEpochStr := strconv.FormatUint(newGlobalEpoch, 10)
 	txn.stm.Put(globalEpochKey, newGlobalEpochStr)
 	txn.stm.Put(clusterEpochKey, newGlobalEpochStr)
@@ -280,7 +283,7 @@ func (txn *TxnBroker) takeover(clusterName, failedProxyAddress string, globalEpo
 		return err
 	}
 
-	return txn.updateCluster(clusterName, globalEpoch, cluster)
+	return txn.updateCluster(clusterName, globalEpoch+1, cluster)
 }
 
 func (txn *TxnBroker) replaceProxy(clusterName, failedProxyAddress string, globalEpoch uint64, cluster *ClusterStore, possiblyAvailableProxies []string) (string, error) {
@@ -322,7 +325,7 @@ func (txn *TxnBroker) replaceProxy(clusterName, failedProxyAddress string, globa
 		return "", err
 	}
 	log.Infof("after replacing, cluster %+v", cluster)
-	return newProxyAddress, txn.updateCluster(clusterName, globalEpoch, cluster)
+	return newProxyAddress, txn.updateCluster(clusterName, globalEpoch+1, cluster)
 }
 
 func (txn *TxnBroker) addNodesToCluster(clusterName string, expectedNodeNum uint64, cluster *ClusterStore, globalEpoch uint64, possiblyAvailableProxies []string) error {
@@ -347,7 +350,7 @@ func (txn *TxnBroker) addNodesToCluster(clusterName string, expectedNodeNum uint
 	}
 
 	cluster.Chunks = append(cluster.Chunks, chunks...)
-	return txn.updateCluster(clusterName, globalEpoch, cluster)
+	return txn.updateCluster(clusterName, globalEpoch+1, cluster)
 }
 
 func initChunkSlots(chunks []*NodeChunkStore) []*NodeChunkStore {
@@ -373,4 +376,17 @@ func initChunkSlots(chunks []*NodeChunkStore) []*NodeChunkStore {
 		}
 	}
 	return chunks
+}
+
+func (txn *TxnBroker) migrateSlots(clusterName string) error {
+	globalEpoch, _, cluster, err := txn.getCluster(clusterName)
+	if err != nil {
+		return err
+	}
+
+	err = cluster.SplitSlots(globalEpoch + 1)
+	if err != nil {
+		return err
+	}
+	return txn.updateCluster(clusterName, globalEpoch+1, cluster)
 }
