@@ -43,7 +43,7 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	r.POST("/api/proxies/failover/:proxy_address", proxy.handleReplaceProxy)
 	r.POST("/api/proxies/nodes", proxy.handleAddHost)
 	r.PUT("/api/clusters/nodes/:clusterName", proxy.handleAddNodes)
-	r.POST("/api/clusters/migration/:clusterName", proxy.handleMigrateSlots)
+	r.POST("/api/clusters/migrations/:clusterName", proxy.handleMigrateSlots)
 
 	return r.Run(proxy.address)
 }
