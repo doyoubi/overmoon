@@ -30,7 +30,11 @@ func NewHTTPBrokerProxy(ctx context.Context, broker broker.MetaDataBroker, maniB
 
 // Serve start the http proxy server.
 func (proxy *HTTPBrokerProxy) Serve() error {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
+	// TODO: Add this to config
+	// r.Use(gin.Logger())
+
 	r.GET("/api/clusters/names", proxy.handleGetClusterNames)
 	r.GET("/api/clusters/meta/:name", proxy.handleGetCluster)
 	r.GET("/api/proxies/addresses", proxy.handleGetProxyAddresses)
