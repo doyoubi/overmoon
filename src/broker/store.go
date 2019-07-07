@@ -10,6 +10,23 @@ import (
 
 var errMissingField = errors.New("missing field")
 
+// ErrCanNotMigrate indicates that the cluster does not
+// have enough empty chunks to do the migration.
+var ErrCanNotMigrate = errors.New("cluster cannot migrate")
+
+// ErrAlreadyMigrating indicates the cluster has already
+// started migration.
+var ErrAlreadyMigrating = errors.New("cluster is migrating")
+
+// ErrInvalidRequestedMigrationSlotRange indicates the request is not valid
+var ErrInvalidRequestedMigrationSlotRange = errors.New("invalid requested migration task")
+
+// ErrMigrationTaskNotFound indicates we can't find the slot range.
+var ErrMigrationTaskNotFound = errors.New("migration task not found")
+
+// ErrMigrationTaskNotMatch indicates we can't find a slot range matches the task.
+var ErrMigrationTaskNotMatch = errors.New("migration task not found")
+
 // ProxyStore stores the basic proxy metadata
 type ProxyStore struct {
 	ProxyIndex    uint64   `json:"proxy_index"`
@@ -89,6 +106,131 @@ func (cluster *ClusterStore) FindChunkByProxy(proxyAddress string) (*NodeChunkSt
 	return nil, ErrProxyNotFound
 }
 
+// SplitSlots splits the slots from the first half to the second half.
+func (cluster *ClusterStore) SplitSlots(newEpoch uint64) error {
+	if len(cluster.Chunks) < 2 {
+		log.Info("Cannot migrate slots, number of chunks is not even.")
+		return ErrCanNotMigrate
+	}
+	if len(cluster.Chunks)%2 != 0 {
+		return errors.WithStack(fmt.Errorf("invalid chunk number %d", len(cluster.Chunks)))
+	}
+	halfChunkNum := uint64(len(cluster.Chunks) / 2)
+
+	for i, srcChunk := range cluster.Chunks {
+		srcChunkIndex := uint64(i)
+		dstChunkIndex := srcChunkIndex + halfChunkNum
+		if srcChunkIndex >= halfChunkNum {
+			break
+		}
+
+		if len(srcChunk.Slots[0]) == 0 || len(srcChunk.Slots[1]) == 0 {
+			log.Info("Cannot migrate slots, slot of source chunks is empty")
+			return ErrCanNotMigrate
+		}
+		if len(srcChunk.Slots[0]) == 2 || len(srcChunk.Slots[1]) == 2 {
+			return ErrAlreadyMigrating
+		}
+		// For simplicity, we assume they just have only one slot range.
+		if len(srcChunk.Slots[0]) != 1 || len(srcChunk.Slots[1]) != 1 {
+			log.Info("Cannot migrate slots, number of slot ranges is not 1")
+			return ErrCanNotMigrate
+		}
+		if srcChunk.Slots[0][0].Tag.TagType != NoneTag || srcChunk.Slots[1][0].Tag.TagType != NoneTag {
+			return ErrAlreadyMigrating
+		}
+
+		dstChunk := cluster.Chunks[dstChunkIndex]
+		log.Infof("srcChunk %+v, dstChunk %+v", srcChunk, dstChunk)
+
+		if len(dstChunk.Slots[0]) > 0 || len(dstChunk.Slots[1]) > 0 {
+			log.Info("Cannot migrate slots, slot of destination chunks is not empty")
+			return ErrCanNotMigrate
+		}
+
+		for j := 0; j != 2; j++ {
+			proxyIndexInChunk := uint64(j)
+			start := srcChunk.Slots[j][0].Start
+			end := srcChunk.Slots[j][0].End
+			if start == end {
+				log.Infof("Cannot migrate slots, cluster reaches the maximum size.")
+				return ErrCanNotMigrate
+			}
+			m := (start + end) / 2
+			// we can prove that: start <= m < end and m + 1 <= end
+			srcChunk.Slots[j][0].End = m
+			srcChunk.Slots[j] = append(srcChunk.Slots[j], SlotRangeStore{
+				Start: m + 1,
+				End:   end,
+				Tag: SlotRangeTagStore{
+					TagType: MigratingTag,
+					Meta: &MigrationMetaStore{
+						Epoch:         newEpoch,
+						SrcProxyIndex: srcChunkIndex*halfChunkSize + proxyIndexInChunk,
+						DstProxyIndex: dstChunkIndex*halfChunkSize + proxyIndexInChunk,
+					},
+				},
+			})
+
+			dstChunk.Slots[j] = []SlotRangeStore{SlotRangeStore{
+				Start: m + 1,
+				End:   end,
+				Tag: SlotRangeTagStore{
+					TagType: ImportingTag,
+					Meta: &MigrationMetaStore{
+						Epoch:         newEpoch,
+						SrcProxyIndex: srcChunkIndex*halfChunkSize + proxyIndexInChunk,
+						DstProxyIndex: dstChunkIndex*halfChunkSize + proxyIndexInChunk,
+					},
+				},
+			}}
+		}
+	}
+	return nil
+}
+
+// CommitMigration finish the slots migration.
+func (cluster *ClusterStore) CommitMigration(taskSlots SlotRange) error {
+	meta := taskSlots.Tag.Meta
+	if meta == nil {
+		return ErrInvalidRequestedMigrationSlotRange
+	}
+	for _, srcChunk := range cluster.Chunks {
+		for i, slots := range srcChunk.Slots {
+			if len(slots) != 2 {
+				continue
+			}
+			// migrating slots is the second one
+			sr := slots[1]
+			if sr.Start != taskSlots.Start || sr.End != taskSlots.End || sr.Tag.TagType != MigratingTag {
+				continue
+			}
+			log.Infof("try match meta %+v", meta)
+			srcMasters := srcChunk.GetMasterNodes()
+			srcMaster := srcMasters[i]
+			if srcMaster.NodeAddress != meta.SrcNodeAddress || srcMaster.ProxyAddress != meta.SrcProxyAddress {
+				return ErrMigrationTaskNotMatch
+			}
+
+			dstChunkIndex := sr.Tag.Meta.DstProxyIndex / 2
+			dstProxyIndexInChunk := sr.Tag.Meta.DstProxyIndex % 2
+
+			dstChunk := cluster.Chunks[dstChunkIndex]
+			dstMasters := dstChunk.GetMasterNodes()
+			dstMaster := dstMasters[dstProxyIndexInChunk]
+			if dstMaster.NodeAddress != meta.DstNodeAddress || dstMaster.ProxyAddress != meta.DstProxyAddress {
+				return ErrMigrationTaskNotMatch
+			}
+
+			// todo
+			srcChunk.Slots[i] = []SlotRangeStore{srcChunk.Slots[i][0]}
+			dstChunk.Slots[dstProxyIndexInChunk][0].Tag = SlotRangeTagStore{TagType: NoneTag}
+			return nil
+		}
+	}
+	return ErrMigrationTaskNotFound
+}
+
 // ChunkRolePosition indicates the roles in the chunk
 type ChunkRolePosition int
 
@@ -104,8 +246,19 @@ const (
 // NodeChunkStore stores 4 nodes as a group
 type NodeChunkStore struct {
 	RolePosition ChunkRolePosition
-	Slots        [][]SlotRangeStore `json:"slots"`
-	Nodes        []*NodeStore       `json:"nodes"`
+	Slots        [2][]SlotRangeStore `json:"slots"`
+	Nodes        [4]*NodeStore       `json:"nodes"`
+}
+
+// GetMasterNodes gets the master nodes
+func (chunk *NodeChunkStore) GetMasterNodes() [2]*NodeStore {
+	if chunk.RolePosition == ChunkRoleNormalPosition {
+		return [2]*NodeStore{chunk.Nodes[0], chunk.Nodes[2]}
+	} else if chunk.RolePosition == ChunkRoleFirstChunkMaster {
+		return [2]*NodeStore{chunk.Nodes[0], chunk.Nodes[1]}
+	}
+	// Master of first slot range should be the first one.
+	return [2]*NodeStore{chunk.Nodes[3], chunk.Nodes[2]}
 }
 
 // SwitchMaster takes over the master role
@@ -217,7 +370,7 @@ func parseNodes(clusterData []byte) ([]*Node, error) {
 			err = fmt.Errorf("invalid slots of chunk %v", chunk.Slots)
 			return nil, errors.WithStack(err)
 		}
-		slots = append(slots, chunk.Slots...)
+		slots = append(slots, chunk.Slots[:]...)
 		chunkRoles = append(chunkRoles, chunk.RolePosition)
 	}
 

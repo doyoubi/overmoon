@@ -37,10 +37,13 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	r.GET("/api/proxies/meta/:address", proxy.handleGetProxy)
 	r.POST("/api/failures/:address/:reportID", proxy.handleAddFailure)
 	r.GET("/api/failures", proxy.handleGetFailure)
+	r.PUT("/api/clusters/migrations", proxy.handleCommitMigration)
 
 	r.POST("/api/clusters", proxy.handleAddCluster)
 	r.POST("/api/proxies/failover/:proxy_address", proxy.handleReplaceProxy)
 	r.POST("/api/proxies/nodes", proxy.handleAddHost)
+	r.PUT("/api/clusters/nodes/:clusterName", proxy.handleAddNodes)
+	r.POST("/api/clusters/migration/:clusterName", proxy.handleMigrateSlots)
 
 	return r.Run(proxy.address)
 }
@@ -221,7 +224,6 @@ type addHostPayload struct {
 	Nodes        []string `json:"nodes"`
 }
 
-// POST /api/hosts
 func (proxy *HTTPBrokerProxy) handleAddHost(c *gin.Context) {
 	var payload addHostPayload
 	err := c.BindJSON(&payload)
@@ -246,4 +248,99 @@ func (proxy *HTTPBrokerProxy) handleAddHost(c *gin.Context) {
 		return
 	}
 	c.String(200, "")
+}
+
+type addHNodesPayload struct {
+	ExpectedNodeNumber uint64 `json:"expected_node_number"`
+}
+
+func (proxy *HTTPBrokerProxy) handleAddNodes(c *gin.Context) {
+	clusterName := c.Param("clusterName")
+	var payload addHNodesPayload
+	err := c.BindJSON(&payload)
+	if err != nil {
+		c.JSON(400, gin.H{
+			"error": fmt.Sprintf("failed to get json payload %s", err),
+		})
+		return
+	}
+
+	err = proxy.maniBroker.AddNodesToCluster(proxy.ctx, clusterName, payload.ExpectedNodeNumber)
+	if err == broker.ErrNoAvailableResource {
+		c.JSON(409, gin.H{
+			"error": "no available resource",
+		})
+		return
+	}
+	if err == broker.ErrClusterNotFound {
+		c.JSON(404, gin.H{
+			"error": fmt.Sprintf("cluster %s not found", clusterName),
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(500, gin.H{
+			"error": fmt.Sprintf("failed to add nodes to cluster %s: %s", clusterName, err),
+		})
+		return
+	}
+}
+
+func (proxy *HTTPBrokerProxy) handleMigrateSlots(c *gin.Context) {
+	clusterName := c.Param("clusterName")
+	err := proxy.maniBroker.MigrateSlots(proxy.ctx, clusterName)
+	if err == broker.ErrClusterNotFound {
+		c.JSON(404, gin.H{
+			"error": fmt.Sprintf("cluster %s not found", clusterName),
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(500, gin.H{
+			"error": fmt.Sprintf("%s failed to migrate slots: %s", clusterName, err),
+		})
+		return
+	}
+}
+
+func (proxy *HTTPBrokerProxy) handleCommitMigration(c *gin.Context) {
+	var payload broker.MigrationTaskMeta
+	err := c.BindJSON(&payload)
+	if err != nil {
+		c.JSON(400, gin.H{
+			"error": fmt.Sprintf("failed to get json payload %s", err),
+		})
+		return
+	}
+	err = proxy.maniBroker.CommitMigration(proxy.ctx, payload)
+	if err == broker.ErrClusterNotFound {
+		c.JSON(404, gin.H{
+			"error": fmt.Sprintf("cluster %s not found", payload.DBName),
+		})
+		return
+	}
+	if err == broker.ErrMigrationTaskNotFound {
+		c.JSON(404, gin.H{
+			"error": fmt.Sprintf("task %+v not found", payload),
+		})
+		return
+	}
+	if err == broker.ErrInvalidRequestedMigrationSlotRange {
+		c.JSON(400, gin.H{
+			"error": fmt.Sprintf("invalid migration task %+v", payload),
+		})
+		return
+	}
+	if err == broker.ErrAlreadyMigrating {
+		c.JSON(400, gin.H{
+			"error": "already migrating",
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(500, gin.H{
+			"error": fmt.Sprintf("%s failed to migrate slots: %s", payload.DBName, err),
+		})
+		return
+	}
 }

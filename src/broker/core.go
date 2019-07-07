@@ -18,11 +18,16 @@ type MetaDataBroker interface {
 
 // MetaManipulationBroker abstracts the ability to manipulate clusters.
 type MetaManipulationBroker interface {
+	// Basic API
 	ReplaceProxy(ctx context.Context, proxyAddress string) (*Host, error)
-	CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error
+	CommitMigration(ctx context.Context, task MigrationTaskMeta) error
 
+	// Extented API
 	InitGlobalEpoch() error
+	CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error
 	AddHost(ctx context.Context, address string, nodes []string) error
+	AddNodesToCluster(ctx context.Context, clusterName string, expectedNodeNum uint64) error
+	MigrateSlots(ctx context.Context, clusterName string) error
 }
 
 // SlotRange is the slot range of redis cluster. Start and End will be the same the single slot.
@@ -48,6 +53,12 @@ type MigrationMeta struct {
 	SrcNodeAddress  string `json:"src_node_address"`
 	DstProxyAddress string `json:"dst_proxy_address"`
 	DstNodeAddress  string `json:"dst_node_address"`
+}
+
+// MigrationTaskMeta denotes the migration task.
+type MigrationTaskMeta struct {
+	DBName string    `json:"db_name"`
+	Slots  SlotRange `json:"slot_range"`
 }
 
 // Role could be 'master' or 'replica'.

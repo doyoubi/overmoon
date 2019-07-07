@@ -20,11 +20,17 @@ var ErrClusterExists = errors.New("cluster already exists")
 // ErrInvalidNodesNum indicates invalid node number.
 var ErrInvalidNodesNum = errors.New("invalid node number")
 
+// ErrInvalidRequestedNodesNum indicates invalid node number.
+var ErrInvalidRequestedNodesNum = errors.New("invalid node number")
+
 // ErrHostExists indicates the proxy has already existed.
 var ErrHostExists = errors.New("host already existed")
 
 // ErrNoAvailableResource indicates no available resource.
 var ErrNoAvailableResource = errors.New("no available resource")
+
+// ErrAllocatedProxyInUse tells the client to try again.
+var ErrAllocatedProxyInUse = errors.New("allocated proxy is in use")
 
 // EtcdMetaManipulationBroker is mainly for metadata modification
 type EtcdMetaManipulationBroker struct {
@@ -125,14 +131,13 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
-		proxies, err := txn.consumeProxies(clusterName, nodeNum/2, possiblyAvailableProxies)
+		existingChunks := make([]*NodeChunkStore, 0)
+		chunks, err := txn.consumeChunks(clusterName, nodeNum/2, possiblyAvailableProxies, existingChunks)
 		if err != nil {
 			return err
 		}
-		cluster, err := broker.genCluster(proxies)
-		if err != nil {
-			return err
-		}
+		chunks = initChunkSlots(chunks)
+		cluster := &ClusterStore{Chunks: chunks}
 		txn.createCluster(clusterName, cluster)
 		return nil
 	})
@@ -143,64 +148,8 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 	return nil
 }
 
-func (broker *EtcdMetaManipulationBroker) genCluster(proxyMetadata map[string]*ProxyStore) (*ClusterStore, error) {
-	proxyNum := uint64(len(proxyMetadata))
-	chunkNum := proxyNum / 2
-	gap := (MaxSlotNumber + proxyNum - 1) / proxyNum
-
-	chunks := make([]*NodeChunkStore, 0, chunkNum)
-	chunkNodes := make([]*NodeStore, 0, chunkSize)
-	chunkSlots := make([][]SlotRangeStore, 0, halfChunkSize)
-
-	var index uint64
-	for proxyAddress, meta := range proxyMetadata {
-		if len(meta.NodeAddresses) != 2 {
-			return nil, ErrInvalidNodesNum
-		}
-		end := (index+1)*gap - 1
-		if MaxSlotNumber < end {
-			end = MaxSlotNumber
-		}
-		slots := SlotRangeStore{
-			Start: index * gap,
-			End:   end,
-			Tag:   SlotRangeTagStore{TagType: NoneTag},
-		}
-		master := &NodeStore{
-			NodeAddress:  meta.NodeAddresses[0],
-			ProxyAddress: proxyAddress,
-		}
-		replica := &NodeStore{
-			NodeAddress:  meta.NodeAddresses[1],
-			ProxyAddress: proxyAddress,
-		}
-		chunkNodes = append(chunkNodes, master)
-		chunkNodes = append(chunkNodes, replica)
-		chunkSlots = append(chunkSlots, []SlotRangeStore{slots})
-
-		if index%2 == 1 {
-			chunk := &NodeChunkStore{
-				RolePosition: ChunkRoleNormalPosition,
-				Slots:        chunkSlots,
-				Nodes:        chunkNodes,
-			}
-			chunks = append(chunks, chunk)
-			chunkNodes = make([]*NodeStore, 0, chunkSize)
-			chunkSlots = make([][]SlotRangeStore, 0, halfChunkSize)
-		}
-
-		index++
-	}
-
-	return &ClusterStore{Chunks: chunks}, nil
-}
-
 // ReplaceProxy changes the proxy and return the new one.
 func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, address string) (*Host, error) {
-	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
-	if err != nil {
-		return nil, err
-	}
 	_, proxy, err := broker.metaDataBroker.getProxyMetaFromEtcd(ctx, address)
 	if err != nil {
 		return nil, err
@@ -211,8 +160,6 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 		return nil, ErrProxyNotInUse
 	}
 
-	var newProxyAddress string
-
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
 
@@ -221,9 +168,26 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 			return err
 		}
 
-		err = txn.takeover(clusterName, address, globalEpoch, cluster)
+		return txn.takeover(clusterName, address, globalEpoch, cluster)
+	})
+
+	if err != nil {
+		log.Errorf("failed to takeover. response: %v. error: %v", response, err)
+		return nil, err
+	}
+
+	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var newProxyAddress string
+
+	response, err = conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+
+		globalEpoch, _, cluster, err := txn.getCluster(clusterName)
 		if err != nil {
-			log.Errorf("failed to takeover %+v", err)
 			return err
 		}
 
@@ -232,9 +196,68 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 	})
 
 	if err != nil {
-		log.Errorf("failed to replace proxy. response: %v. error: %v", response, err)
+		log.Errorf("failed to replace proxy. response: %+v. error: %v %s", response, err, err)
 		return nil, err
 	}
 
+	// TODO: get proxy directly from cache or change api.
 	return broker.metaDataBroker.GetProxy(ctx, newProxyAddress)
+}
+
+// AddNodesToCluster adds chunks to cluster.
+func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context, clusterName string, expectedNodeNum uint64) error {
+	if expectedNodeNum%chunkSize != 0 {
+		return ErrInvalidRequestedNodesNum
+	}
+
+	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
+	if err != nil {
+		log.Infof("node number already satisfied %s", clusterName)
+		return err
+	}
+	if len(possiblyAvailableProxies) == 0 {
+		return ErrNoAvailableResource
+	}
+
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+
+		globalEpoch, _, cluster, err := txn.getCluster(clusterName)
+		if err != nil {
+			return err
+		}
+		log.Infof("start to add nodes to cluster %s", clusterName)
+		return txn.addNodesToCluster(clusterName, expectedNodeNum, cluster, globalEpoch, possiblyAvailableProxies)
+	})
+
+	if err != nil {
+		log.Errorf("failed to add nodes. response: %v. error: %v", response, err)
+	}
+	return err
+}
+
+// MigrateSlots splits the slots to another half cluster.
+func (broker *EtcdMetaManipulationBroker) MigrateSlots(ctx context.Context, clusterName string) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		return txn.migrateSlots(clusterName)
+	})
+
+	if err != nil {
+		log.Errorf("failed to start migration. response: %v. error: %v", response, err)
+	}
+	return err
+}
+
+// CommitMigration finishes the migration.
+func (broker *EtcdMetaManipulationBroker) CommitMigration(ctx context.Context, task MigrationTaskMeta) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		return txn.commitMigration(task)
+	})
+
+	if err != nil {
+		log.Errorf("failed to commit migration. response: %v. error: %v", response, err)
+	}
+	return err
 }
