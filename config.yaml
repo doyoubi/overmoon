@@ -1,3 +1,4 @@
+address: 127.0.0.1:7799
 path_prefix: /overmoon
 failure_ttl: 10
 etcd_nodes:

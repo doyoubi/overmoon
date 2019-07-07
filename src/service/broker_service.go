@@ -15,6 +15,7 @@ import (
 )
 
 type proxyConfig struct {
+	address    string
 	pathPrefix string
 	failureTTL int64
 	etcdNodes  []string
@@ -29,6 +30,10 @@ func getConfig() (*proxyConfig, error) {
 	viper.SetConfigType("YAML")
 	viper.ReadConfig(bytes.NewBuffer(data))
 
+	address := viper.GetString("address")
+	if address == "" {
+		address = "127.0.0.1:7799"
+	}
 	pathPrefix := viper.GetString("path_prefix")
 	if pathPrefix == "" {
 		pathPrefix = "/undermoon"
@@ -43,6 +48,7 @@ func getConfig() (*proxyConfig, error) {
 	}
 
 	return &proxyConfig{
+		address:    address,
 		pathPrefix: pathPrefix,
 		failureTTL: failureTTL,
 		etcdNodes:  etcdNodes,
@@ -78,7 +84,7 @@ func RunBrokerService() error {
 
 	ctx := context.Background()
 
-	proxy := NewHTTPBrokerProxy(ctx, metaBroker, maniBroker, "127.0.0.1:7799")
+	proxy := NewHTTPBrokerProxy(ctx, metaBroker, maniBroker, config.address)
 
 	err = maniBroker.InitGlobalEpoch()
 	if err != nil {

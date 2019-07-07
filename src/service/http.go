@@ -30,7 +30,11 @@ func NewHTTPBrokerProxy(ctx context.Context, broker broker.MetaDataBroker, maniB
 
 // Serve start the http proxy server.
 func (proxy *HTTPBrokerProxy) Serve() error {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
+	// TODO: Add this to config
+	// r.Use(gin.Logger())
+
 	r.GET("/api/clusters/names", proxy.handleGetClusterNames)
 	r.GET("/api/clusters/meta/:name", proxy.handleGetCluster)
 	r.GET("/api/proxies/addresses", proxy.handleGetProxyAddresses)
@@ -43,7 +47,7 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	r.POST("/api/proxies/failover/:proxy_address", proxy.handleReplaceProxy)
 	r.POST("/api/proxies/nodes", proxy.handleAddHost)
 	r.PUT("/api/clusters/nodes/:clusterName", proxy.handleAddNodes)
-	r.POST("/api/clusters/migration/:clusterName", proxy.handleMigrateSlots)
+	r.POST("/api/clusters/migrations/:clusterName", proxy.handleMigrateSlots)
 
 	return r.Run(proxy.address)
 }

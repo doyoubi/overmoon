@@ -14,5 +14,8 @@ listetcd:
 clearetcd:
 	ETCDCTL_API=3 etcdctl del --prefix=true /
 
+build-docker:
+	docker build -t overmoon .
+
 .PHONY: build test lint listetcd clearetcd
 
