@@ -475,6 +475,9 @@ func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
 			free = append(free, chunk.Nodes[halfChunkSize].ProxyAddress)
 		}
 	}
+	if freeStartIndex == 0 {
+		return ErrProxyInUse
+	}
 
 	cluster.Chunks = cluster.Chunks[:freeStartIndex]
 	err = txn.updateCluster(clusterName, globalEpoch+1, cluster)
