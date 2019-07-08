@@ -463,9 +463,6 @@ func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
 	for i, chunk := range cluster.Chunks {
 		if len(chunk.Slots[0]) == 0 && len(chunk.Slots[1]) == 0 {
 			freeStartIndex = i
-			if len(cluster.Chunks)%freeStartIndex != 0 {
-				return errors.WithStack(errors.New("invalid state, unexpected free chunk"))
-			}
 		}
 		if freeStartIndex != 0 {
 			if len(chunk.Slots[0]) != 0 || len(chunk.Slots[1]) != 0 {

@@ -347,7 +347,7 @@ func (proxy *HTTPBrokerProxy) handleRemoveUnusedProxiesFromCluster(c *gin.Contex
 	err := proxy.maniBroker.RemoveUnusedProxiesFromCluster(proxy.ctx, clusterName)
 	errMap := map[error]httpResponse{
 		broker.ErrClusterNotFound: httpResponse{statusCode: 404, errorMsg: fmt.Sprintf("cluster %s not found", clusterName)},
-		broker.ErrProxyInUse:      httpResponse{statusCode: 400, errorMsg: "all proxies are in use"},
+		broker.ErrProxyInUse:      httpResponse{statusCode: 400, errorMsg: "proxy is in use"},
 	}
 	if response, ok := errMap[err]; ok {
 		c.JSON(response.statusCode, gin.H{
