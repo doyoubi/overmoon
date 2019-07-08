@@ -403,3 +403,84 @@ func (txn *TxnBroker) commitMigration(task MigrationTaskMeta) error {
 	}
 	return txn.updateCluster(task.DBName, globalEpoch+1, cluster)
 }
+
+func (txn *TxnBroker) removeProxy(address string) error {
+	proxyKey := fmt.Sprintf("%s/all_proxies/%s", txn.config.PathPrefix, address)
+	failedProxyKey := fmt.Sprintf("%s/failed_proxies/%s", txn.config.PathPrefix, address)
+
+	proxyData := txn.stm.Get(proxyKey)
+	if proxyData == "" {
+		txn.stm.Del(failedProxyKey)
+		return nil
+	}
+
+	proxy := &ProxyStore{}
+	err := proxy.Decode([]byte(proxyData))
+	if err != nil {
+		return err
+	}
+	if proxy.ClusterName != "" {
+		return ErrProxyInUse
+	}
+
+	txn.stm.Del(proxyKey)
+	txn.stm.Del(failedProxyKey)
+	return nil
+}
+
+func (txn *TxnBroker) freeProxiesFromCluster(proxyAddresses []string) error {
+	for _, address := range proxyAddresses {
+		proxyKey := fmt.Sprintf("%s/all_proxies/%s", txn.config.PathPrefix, address)
+		proxyData := txn.stm.Get(proxyKey)
+		if proxyData == "" {
+			continue
+		}
+		proxy := &ProxyStore{}
+		err := proxy.Decode([]byte(proxyData))
+		if err != nil {
+			return err
+		}
+		proxy.ProxyIndex = 0
+		proxy.ClusterName = ""
+
+		newProxyData, err := proxy.Encode()
+		if err != nil {
+			return err
+		}
+		txn.stm.Put(proxyKey, string(newProxyData))
+	}
+	return nil
+}
+
+func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
+	globalEpoch, _, cluster, err := txn.getCluster(clusterName)
+	if err != nil {
+		return nil
+	}
+
+	free := []string{}
+	var freeStartIndex int
+	for i, chunk := range cluster.Chunks {
+		if len(chunk.Slots[0]) == 0 && len(chunk.Slots[1]) == 0 {
+			freeStartIndex = i
+		}
+		if freeStartIndex != 0 {
+			if len(chunk.Slots[0]) != 0 || len(chunk.Slots[1]) != 0 {
+				return errors.WithStack(errors.New("invalid state, unexpected chunk with slots"))
+			}
+			free = append(free, chunk.Nodes[0].ProxyAddress)
+			free = append(free, chunk.Nodes[halfChunkSize].ProxyAddress)
+		}
+	}
+	if freeStartIndex == 0 {
+		return ErrProxyInUse
+	}
+
+	cluster.Chunks = cluster.Chunks[:freeStartIndex]
+	err = txn.updateCluster(clusterName, globalEpoch+1, cluster)
+	if err != nil {
+		return nil
+	}
+
+	return txn.freeProxiesFromCluster(free)
+}

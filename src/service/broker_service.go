@@ -63,7 +63,7 @@ func RunBrokerService() error {
 		log.Info(errStr)
 		return errors.New(errStr)
 	}
-	log.Infof("config: %v\n", config)
+	log.Infof("config: %+v\n", config)
 
 	brokerCfg := &broker.EtcdConfig{
 		PathPrefix: config.pathPrefix,

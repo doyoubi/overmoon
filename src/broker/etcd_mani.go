@@ -261,3 +261,29 @@ func (broker *EtcdMetaManipulationBroker) CommitMigration(ctx context.Context, t
 	}
 	return err
 }
+
+// RemoveProxy remove a free proxy.
+func (broker *EtcdMetaManipulationBroker) RemoveProxy(ctx context.Context, address string) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		return txn.removeProxy(address)
+	})
+
+	if err != nil {
+		log.Errorf("failed to remove proxy. response: %v. error: %v", response, err)
+	}
+	return err
+}
+
+// RemoveUnusedProxiesFromCluster free the unused proxies.
+func (broker *EtcdMetaManipulationBroker) RemoveUnusedProxiesFromCluster(ctx context.Context, clusterName string) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		return txn.removeUnusedProxiesFromCluster(clusterName)
+	})
+
+	if err != nil {
+		log.Errorf("failed to remove proxy from cluster. response: %v. error: %v", response, err)
+	}
+	return err
+}
