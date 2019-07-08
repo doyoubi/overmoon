@@ -28,6 +28,9 @@ var ErrProxyNotFound = errors.New("proxy not found")
 // ErrProxyNotInUse indicates that key does not exist.
 var ErrProxyNotInUse = errors.New("proxy not in use")
 
+// ErrProxyInUse indicates that key does not exist.
+var ErrProxyInUse = errors.New("proxy is in use")
+
 // ErrGlobalEpochNotFound indicates that key does not exist.
 var ErrGlobalEpochNotFound = errors.New("global epoch not found")
 
