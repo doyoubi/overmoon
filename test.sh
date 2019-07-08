@@ -26,5 +26,8 @@ curl localhost:7799/api/clusters/meta/mydb | python -m json.tool
 curl -v -XDELETE -H 'Content-Type: application/json' localhost:7799/api/clusters/free_nodes/mydb
 curl localhost:7799/api/clusters/meta/mydb | python -m json.tool
 
+curl -v -XDELETE localhost:7799/api/clusters/meta/mydb
+curl localhost:7799/api/clusters/names
+
 fi
 

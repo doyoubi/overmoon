@@ -150,7 +150,7 @@ func (txn *TxnBroker) consumeProxies(clusterName string, proxyNum uint64, possib
 		proxyIndex++
 		metaStr, err := meta.Encode()
 		if err != nil {
-			return nil, nil
+			return nil, err
 		}
 		txn.stm.Put(proxyKey, string(metaStr))
 	}
@@ -455,7 +455,7 @@ func (txn *TxnBroker) freeProxiesFromCluster(proxyAddresses []string) error {
 func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
 	globalEpoch, _, cluster, err := txn.getCluster(clusterName)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	free := []string{}
@@ -479,7 +479,7 @@ func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
 	cluster.Chunks = cluster.Chunks[:freeStartIndex]
 	err = txn.updateCluster(clusterName, globalEpoch+1, cluster)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	return txn.freeProxiesFromCluster(free)
@@ -488,7 +488,7 @@ func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
 func (txn *TxnBroker) removeCluster(clusterName string) error {
 	globalEpoch, _, cluster, err := txn.getCluster(clusterName)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	proxies := []string{}

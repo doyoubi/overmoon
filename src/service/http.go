@@ -58,7 +58,7 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	logGroup.POST("/clusters/migrations/:clusterName", proxy.handleMigrateSlots)
 	logGroup.DELETE("/proxies/nodes/:proxyAddress", proxy.handleRemoveProxy)
 	logGroup.DELETE("/clusters/free_nodes/:clusterName", proxy.handleRemoveUnusedProxiesFromCluster)
-	logGroup.DELETE("/clusters/:clusterName", proxy.handleRemoveCluster)
+	logGroup.DELETE("/clusters/meta/:clusterName", proxy.handleRemoveCluster)
 
 	return r.Run(proxy.address)
 }
