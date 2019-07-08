@@ -287,3 +287,15 @@ func (broker *EtcdMetaManipulationBroker) RemoveUnusedProxiesFromCluster(ctx con
 	}
 	return err
 }
+
+func (broker *EtcdMetaManipulationBroker) RemoveCluster(ctx context.Context, clusterName string) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		return txn.removeCluster(clusterName)
+	})
+
+	if err != nil {
+		log.Errorf("failed to remove cluster. response: %v. error: %v", response, err)
+	}
+	return err
+}

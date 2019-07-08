@@ -484,3 +484,27 @@ func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
 
 	return txn.freeProxiesFromCluster(free)
 }
+
+func (txn *TxnBroker) removeCluster(clusterName string) error {
+	globalEpoch, _, cluster, err := txn.getCluster(clusterName)
+	if err != nil {
+		return nil
+	}
+
+	proxies := []string{}
+	for _, chunk := range cluster.Chunks {
+		proxies = append(proxies, chunk.Nodes[0].ProxyAddress)
+		proxies = append(proxies, chunk.Nodes[halfChunkSize].ProxyAddress)
+	}
+
+	globalEpochKey := fmt.Sprintf("%s/global_epoch", txn.config.PathPrefix)
+	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", txn.config.PathPrefix, clusterName)
+	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", txn.config.PathPrefix, clusterName)
+
+	newGlobalEpochStr := strconv.FormatUint(globalEpoch+1, 10)
+	txn.stm.Put(globalEpochKey, newGlobalEpochStr)
+	txn.stm.Del(clusterEpochKey)
+	txn.stm.Del(clusterNodesKey)
+
+	return txn.freeProxiesFromCluster(proxies)
+}

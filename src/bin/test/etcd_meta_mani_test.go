@@ -404,4 +404,18 @@ func TestRemoveProxies(t *testing.T) {
 	assert.Equal(broker.ErrProxyNotFound, err)
 	_, err = metaBroker.GetProxy(ctx, "127.0.0.4:6004")
 	assert.Equal(broker.ErrProxyNotFound, err)
+
+	err = maniBroker.RemoveCluster(ctx, clusterName)
+	assert.NoError(err)
+
+	metaBroker.ClearCache()
+	_, err = metaBroker.GetCluster(ctx, clusterName)
+	assert.Equal(broker.ErrClusterNotFound, err)
+
+	proxy1, err := metaBroker.GetProxy(ctx, "127.0.0.1:6001")
+	assert.NoError(err)
+	assert.Equal(0, len(proxy1.Nodes))
+	proxy2, err := metaBroker.GetProxy(ctx, "127.0.0.2:6002")
+	assert.NoError(err)
+	assert.Equal(0, len(proxy2.Nodes))
 }

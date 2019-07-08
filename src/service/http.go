@@ -58,6 +58,7 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	logGroup.POST("/clusters/migrations/:clusterName", proxy.handleMigrateSlots)
 	logGroup.DELETE("/proxies/nodes/:proxyAddress", proxy.handleRemoveProxy)
 	logGroup.DELETE("/clusters/free_nodes/:clusterName", proxy.handleRemoveUnusedProxiesFromCluster)
+	logGroup.DELETE("/clusters/:clusterName", proxy.handleRemoveCluster)
 
 	return r.Run(proxy.address)
 }
@@ -379,6 +380,27 @@ func (proxy *HTTPBrokerProxy) handleRemoveProxy(c *gin.Context) {
 	if err != nil {
 		c.JSON(500, gin.H{
 			"error": fmt.Sprintf("failed to remove proxy %s: %+v", proxyAddress, err),
+		})
+		return
+	}
+	c.String(200, "")
+}
+
+func (proxy *HTTPBrokerProxy) handleRemoveCluster(c *gin.Context) {
+	clusterName := c.Param("clusterName")
+	err := proxy.maniBroker.RemoveCluster(proxy.ctx, clusterName)
+	errMap := map[error]httpResponse{
+		broker.ErrClusterNotFound: httpResponse{statusCode: 404, errorMsg: fmt.Sprintf("cluster %s not found", clusterName)},
+	}
+	if response, ok := errMap[err]; ok {
+		c.JSON(response.statusCode, gin.H{
+			"error": response.errorMsg,
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(500, gin.H{
+			"error": fmt.Sprintf("failed to remove cluster %s: %+v", clusterName, err),
 		})
 		return
 	}

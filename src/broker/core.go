@@ -30,6 +30,7 @@ type MetaManipulationBroker interface {
 	MigrateSlots(ctx context.Context, clusterName string) error
 	RemoveProxy(ctx context.Context, address string) error
 	RemoveUnusedProxiesFromCluster(ctx context.Context, clusterName string) error
+	RemoveCluster(ctx context.Context, clusterName string) error
 }
 
 // SlotRange is the slot range of redis cluster. Start and End will be the same the single slot.
