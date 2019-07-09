@@ -25,7 +25,7 @@ type MetaManipulationBroker interface {
 	// Extented API
 	InitGlobalEpoch() error
 	CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error
-	AddHost(ctx context.Context, address string, nodes []string) error
+	AddProxy(ctx context.Context, address string, nodes []string) error
 	AddNodesToCluster(ctx context.Context, clusterName string, expectedNodeNum uint64) error
 	MigrateSlots(ctx context.Context, clusterName string) error
 	RemoveProxy(ctx context.Context, address string) error

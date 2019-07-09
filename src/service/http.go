@@ -53,7 +53,7 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 
 	logGroup.POST("/clusters", proxy.handleAddCluster)
 	logGroup.POST("/proxies/failover/:proxyAddress", proxy.handleReplaceProxy)
-	logGroup.POST("/proxies/nodes", proxy.handleAddHost)
+	logGroup.POST("/proxies/nodes", proxy.handleAddProxy)
 	logGroup.PUT("/clusters/nodes/:clusterName", proxy.handleAddNodes)
 	logGroup.POST("/clusters/migrations/:clusterName", proxy.handleMigrateSlots)
 	logGroup.DELETE("/proxies/nodes/:proxyAddress", proxy.handleRemoveProxy)
@@ -118,9 +118,12 @@ func (proxy *HTTPBrokerProxy) handleGetProxy(c *gin.Context) {
 		})
 		return
 	}
-	if err == broker.ErrTryAgain {
-		c.JSON(503, gin.H{
-			"error": "try again",
+	errMap := map[error]httpResponse{
+		broker.ErrTryAgain: httpResponse{statusCode: 503, errorMsg: "try again"},
+	}
+	if response, ok := errMap[err]; ok {
+		c.JSON(response.statusCode, gin.H{
+			"error": response.errorMsg,
 		})
 		return
 	}
@@ -179,9 +182,14 @@ func (proxy *HTTPBrokerProxy) handleAddCluster(c *gin.Context) {
 	}
 	err = proxy.maniBroker.CreateCluster(
 		proxy.ctx, cluster.ClusterName, cluster.NodeNumber)
-	if err == broker.ErrNoAvailableResource {
-		c.JSON(409, gin.H{
-			"error": fmt.Sprintf("%s", err),
+	errMap := map[error]httpResponse{
+		broker.ErrNoAvailableResource: httpResponse{statusCode: 409, errorMsg: fmt.Sprintf("no available resource: %+v", err)},
+		broker.ErrInvalidNodesNum:     httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("invalid nodes number: %+v", err)},
+		broker.ErrClusterExists:       httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("cluster %s already exists", cluster.ClusterName)},
+	}
+	if response, ok := errMap[err]; ok {
+		c.JSON(response.statusCode, gin.H{
+			"error": response.errorMsg,
 		})
 		return
 	}
@@ -198,21 +206,16 @@ func (proxy *HTTPBrokerProxy) handleAddCluster(c *gin.Context) {
 func (proxy *HTTPBrokerProxy) handleReplaceProxy(c *gin.Context) {
 	proxyAddress := c.Param("proxyAddress")
 	host, err := proxy.maniBroker.ReplaceProxy(proxy.ctx, proxyAddress)
-	if err == broker.ErrNoAvailableResource {
-		c.JSON(409, gin.H{
-			"error": fmt.Sprintf("No available resource: %s", err),
-		})
-		return
+	errMap := map[error]httpResponse{
+		broker.ErrNoAvailableResource: httpResponse{statusCode: 409, errorMsg: fmt.Sprintf("no available resource: %+v", err)},
+		broker.ErrProxyNotFound:       httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("proxy %s not found", proxyAddress)},
+		broker.ErrProxyNotInUse:       httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("proxy %s not in use", proxyAddress)},
+		broker.ErrTryAgain:            httpResponse{statusCode: 503, errorMsg: "try again"},
+		broker.ErrClusterNotFound:     httpResponse{statusCode: 400, errorMsg: "cluster not found"},
 	}
-	if err == broker.ErrProxyNotInUse || err == broker.ErrProxyNotFound {
-		c.JSON(400, gin.H{
-			"error": fmt.Sprintf("can't replace proxy %s: %s", proxyAddress, err),
-		})
-		return
-	}
-	if err == broker.ErrTryAgain {
-		c.JSON(503, gin.H{
-			"error": "try again",
+	if response, ok := errMap[err]; ok {
+		c.JSON(response.statusCode, gin.H{
+			"error": response.errorMsg,
 		})
 		return
 	}
@@ -226,13 +229,13 @@ func (proxy *HTTPBrokerProxy) handleReplaceProxy(c *gin.Context) {
 	c.JSON(200, host)
 }
 
-type addHostPayload struct {
+type addProxyPayload struct {
 	ProxyAddress string   `json:"proxy_address"`
 	Nodes        []string `json:"nodes"`
 }
 
-func (proxy *HTTPBrokerProxy) handleAddHost(c *gin.Context) {
-	var payload addHostPayload
+func (proxy *HTTPBrokerProxy) handleAddProxy(c *gin.Context) {
+	var payload addProxyPayload
 	err := c.BindJSON(&payload)
 	if err != nil {
 		c.JSON(400, gin.H{
@@ -240,11 +243,15 @@ func (proxy *HTTPBrokerProxy) handleAddHost(c *gin.Context) {
 		})
 		return
 	}
-	err = proxy.maniBroker.AddHost(
+	err = proxy.maniBroker.AddProxy(
 		proxy.ctx, payload.ProxyAddress, payload.Nodes)
-	if err == broker.ErrHostExists {
-		c.JSON(400, gin.H{
-			"error": fmt.Sprintf("%s already exists", payload.ProxyAddress),
+	errMap := map[error]httpResponse{
+		broker.ErrHostExists:      httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("%s already exists", payload.ProxyAddress)},
+		broker.ErrInvalidNodesNum: httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("invalid node number: %d", len(payload.Nodes))},
+	}
+	if response, ok := errMap[err]; ok {
+		c.JSON(response.statusCode, gin.H{
+			"error": response.errorMsg,
 		})
 		return
 	}
@@ -273,15 +280,14 @@ func (proxy *HTTPBrokerProxy) handleAddNodes(c *gin.Context) {
 	}
 
 	err = proxy.maniBroker.AddNodesToCluster(proxy.ctx, clusterName, payload.ExpectedNodeNumber)
-	if err == broker.ErrNoAvailableResource {
-		c.JSON(409, gin.H{
-			"error": "no available resource",
-		})
-		return
+	errMap := map[error]httpResponse{
+		broker.ErrNoAvailableResource:      httpResponse{statusCode: 409, errorMsg: fmt.Sprintf("no available resource: %+v", err)},
+		broker.ErrClusterNotFound:          httpResponse{statusCode: 404, errorMsg: fmt.Sprintf("cluster %s not found", clusterName)},
+		broker.ErrInvalidRequestedNodesNum: httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("invalid requested node number: %d", payload.ExpectedNodeNumber)},
 	}
-	if err == broker.ErrClusterNotFound {
-		c.JSON(404, gin.H{
-			"error": fmt.Sprintf("cluster %s not found", clusterName),
+	if response, ok := errMap[err]; ok {
+		c.JSON(response.statusCode, gin.H{
+			"error": response.errorMsg,
 		})
 		return
 	}
@@ -297,9 +303,14 @@ func (proxy *HTTPBrokerProxy) handleAddNodes(c *gin.Context) {
 func (proxy *HTTPBrokerProxy) handleMigrateSlots(c *gin.Context) {
 	clusterName := c.Param("clusterName")
 	err := proxy.maniBroker.MigrateSlots(proxy.ctx, clusterName)
-	if err == broker.ErrClusterNotFound {
-		c.JSON(404, gin.H{
-			"error": fmt.Sprintf("cluster %s not found", clusterName),
+	errMap := map[error]httpResponse{
+		broker.ErrClusterNotFound:  httpResponse{statusCode: 404, errorMsg: fmt.Sprintf("cluster %s not found", clusterName)},
+		broker.ErrCanNotMigrate:    httpResponse{statusCode: 400, errorMsg: "cannot migrate"},
+		broker.ErrAlreadyMigrating: httpResponse{statusCode: 400, errorMsg: "already migrating"},
+	}
+	if response, ok := errMap[err]; ok {
+		c.JSON(response.statusCode, gin.H{
+			"error": response.errorMsg,
 		})
 		return
 	}
@@ -326,7 +337,7 @@ func (proxy *HTTPBrokerProxy) handleCommitMigration(c *gin.Context) {
 		broker.ErrClusterNotFound:                    httpResponse{statusCode: 404, errorMsg: fmt.Sprintf("cluster %s not found", payload.DBName)},
 		broker.ErrMigrationTaskNotFound:              httpResponse{statusCode: 404, errorMsg: fmt.Sprintf("task %+v not found", payload)},
 		broker.ErrInvalidRequestedMigrationSlotRange: httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("invalid migration task %+v", payload)},
-		broker.ErrAlreadyMigrating:                   httpResponse{statusCode: 400, errorMsg: "already migrating"},
+		broker.ErrMigrationTaskNotMatch:              httpResponse{statusCode: 400, errorMsg: "migration task not match"},
 	}
 	if response, ok := errMap[err]; ok {
 		c.JSON(response.statusCode, gin.H{

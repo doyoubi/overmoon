@@ -78,8 +78,8 @@ func (broker *EtcdMetaManipulationBroker) InitGlobalEpoch() error {
 	return nil
 }
 
-// AddHost adds new proxy and removes it from failed proxies
-func (broker *EtcdMetaManipulationBroker) AddHost(ctx context.Context, address string, nodes []string) error {
+// AddProxy adds new proxy and removes it from failed proxies
+func (broker *EtcdMetaManipulationBroker) AddProxy(ctx context.Context, address string, nodes []string) error {
 	if len(nodes) != halfChunkSize {
 		return ErrInvalidNodesNum
 	}

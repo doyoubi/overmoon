@@ -51,7 +51,7 @@ func TestAddProxies(t *testing.T) {
 		"127.0.0.1:7001",
 		"127.0.0.1:7002",
 	}
-	err = maniBroker.AddHost(ctx, "127.0.0.1:6001", nodes)
+	err = maniBroker.AddProxy(ctx, "127.0.0.1:6001", nodes)
 	assert.NoError(err)
 	host, err := metaBroker.GetProxy(ctx, "127.0.0.1:6001")
 	assert.NoError(err)
@@ -142,8 +142,8 @@ func TestCreateCluster(t *testing.T) {
 	}
 	clusterName := "test_create_cluster"
 
-	err = maniBroker.AddHost(ctx, "127.0.0.1:6001", nodes1)
-	err = maniBroker.AddHost(ctx, "127.0.0.2:6002", nodes2)
+	err = maniBroker.AddProxy(ctx, "127.0.0.1:6001", nodes1)
+	err = maniBroker.AddProxy(ctx, "127.0.0.2:6002", nodes2)
 	assert.NoError(err)
 	err = maniBroker.CreateCluster(ctx, clusterName, 4)
 	assert.NoError(err)
@@ -211,9 +211,9 @@ func TestAddNodes(t *testing.T) {
 	}
 	clusterName := "test_create_cluster"
 
-	err = maniBroker.AddHost(ctx, "127.0.0.1:6001", nodes1)
+	err = maniBroker.AddProxy(ctx, "127.0.0.1:6001", nodes1)
 	assert.NoError(err)
-	err = maniBroker.AddHost(ctx, "127.0.0.2:6002", nodes2)
+	err = maniBroker.AddProxy(ctx, "127.0.0.2:6002", nodes2)
 	assert.NoError(err)
 	err = maniBroker.CreateCluster(ctx, clusterName, 4)
 	assert.NoError(err)
@@ -222,9 +222,9 @@ func TestAddNodes(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(4, len(cluster.Nodes))
 
-	err = maniBroker.AddHost(ctx, "127.0.0.3:6003", nodes3)
+	err = maniBroker.AddProxy(ctx, "127.0.0.3:6003", nodes3)
 	assert.NoError(err)
-	err = maniBroker.AddHost(ctx, "127.0.0.4:6004", nodes4)
+	err = maniBroker.AddProxy(ctx, "127.0.0.4:6004", nodes4)
 	assert.NoError(err)
 
 	metaBroker.ClearCache()
@@ -347,9 +347,9 @@ func TestRemoveProxies(t *testing.T) {
 	}
 	clusterName := "test_remove_cluster"
 
-	err = maniBroker.AddHost(ctx, "127.0.0.1:6001", nodes1)
+	err = maniBroker.AddProxy(ctx, "127.0.0.1:6001", nodes1)
 	assert.NoError(err)
-	err = maniBroker.AddHost(ctx, "127.0.0.2:6002", nodes2)
+	err = maniBroker.AddProxy(ctx, "127.0.0.2:6002", nodes2)
 	assert.NoError(err)
 	err = maniBroker.CreateCluster(ctx, clusterName, 4)
 	assert.NoError(err)
@@ -358,9 +358,9 @@ func TestRemoveProxies(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(4, len(cluster.Nodes))
 
-	err = maniBroker.AddHost(ctx, "127.0.0.3:6003", nodes3)
+	err = maniBroker.AddProxy(ctx, "127.0.0.3:6003", nodes3)
 	assert.NoError(err)
-	err = maniBroker.AddHost(ctx, "127.0.0.4:6004", nodes4)
+	err = maniBroker.AddProxy(ctx, "127.0.0.4:6004", nodes4)
 	assert.NoError(err)
 
 	metaBroker.ClearCache()
