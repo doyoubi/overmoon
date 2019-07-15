@@ -256,6 +256,7 @@ func (cluster *ClusterStore) LimitMigration(migrationLimit int64) (*ClusterStore
 			}
 			if len(slots[i]) > 2 {
 				err := errors.New("number of slot range is larger than 2")
+				log.Error(err)
 				return nil, errors.WithStack(err)
 			}
 			newSlotRanges := []SlotRangeStore{}
@@ -266,7 +267,10 @@ func (cluster *ClusterStore) LimitMigration(migrationLimit int64) (*ClusterStore
 					migratingIndex := sr.Tag.Meta.SrcProxyIndex
 					chunkIndex := migratingIndex / 2
 					indexInsideChunk := migratingIndex % 2
-					srcSr := newChunks[chunkIndex].Slots[indexInsideChunk][0]
+
+					srcSlots := newChunks[chunkIndex].Slots[indexInsideChunk]
+					// The last one should be the migrating one.
+					srcSr := srcSlots[len(srcSlots)-1]
 					if srcSr.Tag.TagType == MigratingTag {
 						newSlotRanges = append(newSlotRanges, sr)
 					}

@@ -116,23 +116,34 @@ func TestLimitMigration(t *testing.T) {
 
 	for i := 1; i != 100; i++ {
 		cluster := genTestingClusterStore(i * 8)
-		_, err := cluster.LimitMigration(1)
+		newCluster, err := cluster.LimitMigration(1)
 		assert.NoError(err)
+
+		chunks := newCluster.Chunks
+
+		assert.Equal(2*i, len(chunks))
+		for j, chunk := range chunks {
+			if j < len(chunks)/2 {
+				assert.Equal(2, len(chunk.Slots[0]))
+				assert.Equal(2, len(chunk.Slots[1]))
+
+				if j == 0 {
+					assert.Equal(NoneTag, chunk.Slots[0][0].Tag.TagType)
+					assert.Equal(MigratingTag, chunk.Slots[0][1].Tag.TagType)
+				} else {
+					assert.Equal(NoneTag, chunk.Slots[1][0].Tag.TagType)
+					assert.Equal(NoneTag, chunk.Slots[1][1].Tag.TagType)
+				}
+			} else {
+				if j == len(chunks)/2 {
+					assert.Equal(1, len(chunk.Slots[0]))
+					assert.Equal(0, len(chunk.Slots[1]))
+				} else {
+					assert.Equal(0, len(chunk.Slots[0]))
+					assert.Equal(0, len(chunk.Slots[1]))
+				}
+			}
+		}
+
 	}
-
-	cluster := genTestingClusterStore(8)
-	newCluster, err := cluster.LimitMigration(1)
-	assert.NoError(err)
-	chunks := newCluster.Chunks
-
-	assert.Equal(2, len(chunks))
-	assert.Equal(2, len(chunks[0].Slots[0]))
-	assert.Equal(2, len(chunks[0].Slots[1]))
-	assert.Equal(0, len(chunks[1].Slots[0]))
-	assert.Equal(0, len(chunks[1].Slots[1]))
-
-	assert.Equal(NoneTag, chunks[0].Slots[0][0].Tag.TagType)
-	assert.Equal(MigratingTag, chunks[0].Slots[0][1].Tag.TagType)
-	assert.Equal(NoneTag, chunks[0].Slots[1][0].Tag.TagType)
-	assert.Equal(NoneTag, chunks[0].Slots[1][1].Tag.TagType)
 }

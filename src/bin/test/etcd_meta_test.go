@@ -52,8 +52,7 @@ func prepareData(assert *assert.Assertions) {
 				Start: 0, End: 10000, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag},
 			}},
 			[]broker.SlotRangeStore{
-				broker.SlotRangeStore{Start: 10001, End: 15000, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
-				broker.SlotRangeStore{Start: 15001, End: 16382, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
+				broker.SlotRangeStore{Start: 10001, End: 16382, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
 				broker.SlotRangeStore{Start: 16383, End: 16383, Tag: broker.SlotRangeTagStore{TagType: broker.NoneTag}},
 			},
 		},
@@ -157,8 +156,7 @@ func TestEtcdGetCluster(t *testing.T) {
 	assert.Equal([]broker.SlotRange{broker.SlotRange{Start: 0, End: 10000, Tag: noneTag}}, nodes[0].Slots)
 	assert.Equal([]broker.SlotRange{}, nodes[1].Slots)
 	assert.Equal([]broker.SlotRange{
-		broker.SlotRange{Start: 10001, End: 15000, Tag: noneTag},
-		broker.SlotRange{Start: 15001, End: 16382, Tag: noneTag},
+		broker.SlotRange{Start: 10001, End: 16382, Tag: noneTag},
 		broker.SlotRange{Start: 16383, End: 16383, Tag: noneTag},
 	}, nodes[2].Slots)
 	assert.Equal([]broker.SlotRange{}, nodes[3].Slots)
