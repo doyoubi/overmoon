@@ -4,7 +4,7 @@ WORKDIR /overmoon
 COPY src /overmoon/src
 COPY go.mod go.sum /overmoon/
 
-RUN go build src/bin/proxy/proxy.go
+RUN go build src/bin/overmoon/overmoon.go
 RUN rm -rf src
 RUN rm go.mod go.sum
 

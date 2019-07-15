@@ -15,6 +15,6 @@
 # vendor/
 
 # binary
-proxy
+overmoon
 docker/shared
 

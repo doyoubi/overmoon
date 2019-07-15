@@ -181,6 +181,9 @@ func TestCreateCluster(t *testing.T) {
 	assert.Equal(uint64(broker.MaxSlotNumber/2-1), nodes[0].Slots[0].End)
 	assert.Equal(uint64(broker.MaxSlotNumber/2), nodes[2].Slots[0].Start)
 	assert.Equal(uint64(broker.MaxSlotNumber-1), nodes[2].Slots[0].End)
+
+	err = maniBroker.CreateCluster(ctx, clusterName, 4)
+	assert.Equal(broker.ErrClusterExists, err)
 }
 
 func TestAddNodes(t *testing.T) {

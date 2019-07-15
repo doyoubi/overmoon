@@ -131,13 +131,21 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
+		_, _, cluster, err := txn.getCluster(clusterName)
+		if err == nil && cluster != nil {
+			return ErrClusterExists
+		}
+		if err != nil && err != ErrClusterNotFound {
+			return err
+		}
+
 		existingChunks := make([]*NodeChunkStore, 0)
 		chunks, err := txn.consumeChunks(clusterName, nodeNum/2, possiblyAvailableProxies, existingChunks)
 		if err != nil {
 			return err
 		}
 		chunks = initChunkSlots(chunks)
-		cluster := &ClusterStore{Chunks: chunks}
+		cluster = &ClusterStore{Chunks: chunks}
 		txn.createCluster(clusterName, cluster)
 		return nil
 	})

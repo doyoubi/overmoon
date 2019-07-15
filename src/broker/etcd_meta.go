@@ -333,13 +333,7 @@ func (broker *EtcdMetaBroker) AddFailure(ctx context.Context, address string, re
 	opts := []clientv3.OpOption{
 		clientv3.WithLease(clientv3.LeaseID(res.ID)),
 	}
-
-	// CreateRevision(key) == 0 means that key does not exist
-	_, err = broker.client.Txn(ctx).If(
-		clientv3.Compare(clientv3.CreateRevision(key), "=", 0),
-	).Then(
-		clientv3.OpPut(key, value, opts...),
-	).Commit()
+	_, err = broker.client.Put(ctx, key, value, opts...)
 	return errors.WithStack(err)
 }
 
