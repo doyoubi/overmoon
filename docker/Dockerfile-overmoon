@@ -2,6 +2,6 @@ FROM golang:1.12
 
 WORKDIR /overmoon
 
-COPY docker/shared/proxy /overmoon/
+COPY docker/shared/overmoon /overmoon/
 
 VOLUME /overmoon/config.yaml

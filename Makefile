@@ -1,5 +1,5 @@
 build:
-	go build src/bin/proxy/proxy.go
+	go build src/bin/overmoon/overmoon.go
 
 test:
 	go test ./...
