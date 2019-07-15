@@ -99,8 +99,9 @@ func prepareData(assert *assert.Assertions) {
 
 func genBroker(assert *assert.Assertions) *broker.EtcdMetaBroker {
 	cfg := &broker.EtcdConfig{
-		PathPrefix: "/integration_test",
-		FailureTTL: 10,
+		PathPrefix:     "/integration_test",
+		FailureTTL:     10,
+		MigrationLimit: 1,
 	}
 	etcdBroker, err := broker.NewEtcdMetaBrokerFromEndpoints(cfg, endpoints)
 	assert.Nil(err)

@@ -193,7 +193,18 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	if len(nodesRes.Kvs) != 1 {
 		return 0, 0, nil, errors.WithStack(errInvalidKeyNum)
 	}
-	nodes, err := parseNodes(nodesRes.Kvs[0].Value)
+
+	cluster := &ClusterStore{}
+	err = cluster.Decode(nodesRes.Kvs[0].Value)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	cluster, err = cluster.LimitMigration(broker.config.MigrationLimit)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
+	nodes, err := parseNodes(cluster)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -446,6 +457,7 @@ func parseRangeResult(prefix string, kvs []*mvccpb.KeyValue) (map[string][]byte,
 
 // EtcdConfig stores broker config.
 type EtcdConfig struct {
-	PathPrefix string
-	FailureTTL int64
+	PathPrefix     string
+	FailureTTL     int64
+	MigrationLimit int64
 }

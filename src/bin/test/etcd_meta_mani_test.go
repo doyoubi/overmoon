@@ -25,8 +25,9 @@ func initManiData(assert *assert.Assertions) {
 
 func genManiBroker(assert *assert.Assertions) *broker.EtcdMetaManipulationBroker {
 	cfg := &broker.EtcdConfig{
-		PathPrefix: "/integration_test",
-		FailureTTL: 10,
+		PathPrefix:     "/integration_test",
+		FailureTTL:     10,
+		MigrationLimit: 1,
 	}
 	metaBroker, err := broker.NewEtcdMetaBrokerFromEndpoints(cfg, endpoints)
 	assert.Nil(err)
