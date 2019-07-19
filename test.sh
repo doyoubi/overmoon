@@ -18,7 +18,7 @@ curl localhost:7799/api/proxies/meta/127.0.0.6:6006 | python -m json.tool
 
 elif [ "$arg" = "cluster" ]; then
 
-curl -XPOST -H 'Content-Type: application/json' localhost:7799/api/clusters -d'{"cluster_name":"mydb","node_number":4}' | python -m json.tool
+curl -XPOST -H 'Content-Type: application/json' localhost:7799/api/clusters -d'{"cluster_name":"mydb","node_number":4}' -v
 curl localhost:7799/api/clusters/meta/mydb | python -m json.tool
 curl -v -XPUT -H 'Content-Type: application/json' localhost:7799/api/clusters/nodes/mydb -d'{"expected_node_number":8}'
 curl localhost:7799/api/clusters/meta/mydb | python -m json.tool

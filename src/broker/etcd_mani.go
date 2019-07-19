@@ -32,6 +32,11 @@ var ErrNoAvailableResource = errors.New("no available resource")
 // ErrAllocatedProxyInUse tells the client to try again.
 var ErrAllocatedProxyInUse = errors.New("allocated proxy is in use")
 
+// ErrEmptyChunksExist indicates that the cluster still need to do
+// the migration for the remaining empty chunks before adding
+// more nodes.
+var ErrEmptyChunksExist = errors.New("there're empty chunks")
+
 // EtcdMetaManipulationBroker is mainly for metadata modification
 type EtcdMetaManipulationBroker struct {
 	metaDataBroker *EtcdMetaBroker
@@ -116,7 +121,7 @@ func (broker *EtcdMetaManipulationBroker) AddProxy(ctx context.Context, address 
 
 // CreateCluster creates a new cluster with specified node number
 func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error {
-	if nodeNum%chunkSize != 0 || nodeNum%halfChunkSize != 0 {
+	if nodeNum%chunkSize != 0 || nodeNum%halfChunkSize != 0 || nodeNum == 0 {
 		return ErrInvalidNodesNum
 	}
 
@@ -213,14 +218,9 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 }
 
 // AddNodesToCluster adds chunks to cluster.
-func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context, clusterName string, expectedNodeNum uint64) error {
-	if expectedNodeNum%chunkSize != 0 {
-		return ErrInvalidRequestedNodesNum
-	}
-
+func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context, clusterName string) error {
 	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
 	if err != nil {
-		log.Infof("node number already satisfied %s", clusterName)
 		return err
 	}
 	if len(possiblyAvailableProxies) == 0 {
@@ -234,7 +234,11 @@ func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context,
 		if err != nil {
 			return err
 		}
+		if cluster.HasEmptyChunks() {
+			return ErrEmptyChunksExist
+		}
 		log.Infof("start to add nodes to cluster %s", clusterName)
+		expectedNodeNum := uint64(len(cluster.Chunks)*chunkSize) * 2
 		return txn.addNodesToCluster(clusterName, expectedNodeNum, cluster, globalEpoch, possiblyAvailableProxies)
 	})
 

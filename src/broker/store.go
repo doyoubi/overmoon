@@ -92,6 +92,17 @@ type ClusterStore struct {
 	Chunks []*NodeChunkStore `json:"chunks"`
 }
 
+// HasEmptyChunks checks whether there're still chunks
+// that do not have slots.
+func (cluster *ClusterStore) HasEmptyChunks() bool {
+	for _, chunk := range cluster.Chunks {
+		if len(chunk.Slots[0]) == 0 || len(chunk.Slots[1]) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // FindChunkByProxy find chunk by proxy address.
 func (cluster *ClusterStore) FindChunkByProxy(proxyAddress string) (*NodeChunkStore, error) {
 	for _, chunk := range cluster.Chunks {
@@ -109,8 +120,7 @@ func (cluster *ClusterStore) FindChunkByProxy(proxyAddress string) (*NodeChunkSt
 // SplitSlots splits the slots from the first half to the second half.
 func (cluster *ClusterStore) SplitSlots(newEpoch uint64) error {
 	if len(cluster.Chunks) < 2 {
-		log.Info("Cannot migrate slots, number of chunks is not even.")
-		return ErrCanNotMigrate
+		return errors.WithStack(fmt.Errorf("number of chunks is not even: %d", len(cluster.Chunks)))
 	}
 	if len(cluster.Chunks)%2 != 0 {
 		return errors.WithStack(fmt.Errorf("invalid chunk number %d", len(cluster.Chunks)))

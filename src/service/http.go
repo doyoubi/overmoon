@@ -183,8 +183,8 @@ func (proxy *HTTPBrokerProxy) handleAddCluster(c *gin.Context) {
 	err = proxy.maniBroker.CreateCluster(
 		proxy.ctx, cluster.ClusterName, cluster.NodeNumber)
 	errMap := map[error]httpResponse{
-		broker.ErrNoAvailableResource: httpResponse{statusCode: 409, errorMsg: fmt.Sprintf("no available resource: %+v", err)},
-		broker.ErrInvalidNodesNum:     httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("invalid nodes number: %+v", err)},
+		broker.ErrNoAvailableResource: httpResponse{statusCode: 409, errorMsg: fmt.Sprintf("no available resource: %s", err)},
+		broker.ErrInvalidNodesNum:     httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("invalid nodes number: %s", err)},
 		broker.ErrClusterExists:       httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("cluster %s already exists", cluster.ClusterName)},
 	}
 	if response, ok := errMap[err]; ok {
@@ -207,7 +207,7 @@ func (proxy *HTTPBrokerProxy) handleReplaceProxy(c *gin.Context) {
 	proxyAddress := c.Param("proxyAddress")
 	host, err := proxy.maniBroker.ReplaceProxy(proxy.ctx, proxyAddress)
 	errMap := map[error]httpResponse{
-		broker.ErrNoAvailableResource: httpResponse{statusCode: 409, errorMsg: fmt.Sprintf("no available resource: %+v", err)},
+		broker.ErrNoAvailableResource: httpResponse{statusCode: 409, errorMsg: fmt.Sprintf("no available resource: %s", err)},
 		broker.ErrProxyNotFound:       httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("proxy %s not found", proxyAddress)},
 		broker.ErrProxyNotInUse:       httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("proxy %s not in use", proxyAddress)},
 		broker.ErrTryAgain:            httpResponse{statusCode: 503, errorMsg: "try again"},
@@ -264,26 +264,13 @@ func (proxy *HTTPBrokerProxy) handleAddProxy(c *gin.Context) {
 	c.String(200, "")
 }
 
-type addHNodesPayload struct {
-	ExpectedNodeNumber uint64 `json:"expected_node_number"`
-}
-
 func (proxy *HTTPBrokerProxy) handleAddNodes(c *gin.Context) {
 	clusterName := c.Param("clusterName")
-	var payload addHNodesPayload
-	err := c.BindJSON(&payload)
-	if err != nil {
-		c.JSON(400, gin.H{
-			"error": fmt.Sprintf("failed to get json payload %s", err),
-		})
-		return
-	}
-
-	err = proxy.maniBroker.AddNodesToCluster(proxy.ctx, clusterName, payload.ExpectedNodeNumber)
+	err := proxy.maniBroker.AddNodesToCluster(proxy.ctx, clusterName)
 	errMap := map[error]httpResponse{
-		broker.ErrNoAvailableResource:      httpResponse{statusCode: 409, errorMsg: fmt.Sprintf("no available resource: %+v", err)},
-		broker.ErrClusterNotFound:          httpResponse{statusCode: 404, errorMsg: fmt.Sprintf("cluster %s not found", clusterName)},
-		broker.ErrInvalidRequestedNodesNum: httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("invalid requested node number: %d", payload.ExpectedNodeNumber)},
+		broker.ErrNoAvailableResource: httpResponse{statusCode: 409, errorMsg: fmt.Sprintf("no available resource: %s", err)},
+		broker.ErrClusterNotFound:     httpResponse{statusCode: 404, errorMsg: fmt.Sprintf("cluster %s not found", clusterName)},
+		broker.ErrEmptyChunksExist:    httpResponse{statusCode: 400, errorMsg: fmt.Sprintf("empty chunks exist")},
 	}
 	if response, ok := errMap[err]; ok {
 		c.JSON(response.statusCode, gin.H{
