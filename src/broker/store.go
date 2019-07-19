@@ -92,6 +92,17 @@ type ClusterStore struct {
 	Chunks []*NodeChunkStore `json:"chunks"`
 }
 
+// HasEmptyChunks checks whether there're still chunks
+// that do not have slots.
+func (cluster *ClusterStore) HasEmptyChunks() bool {
+	for _, chunk := range cluster.Chunks {
+		if len(chunk.Slots[0]) == 0 || len(chunk.Slots[1]) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // FindChunkByProxy find chunk by proxy address.
 func (cluster *ClusterStore) FindChunkByProxy(proxyAddress string) (*NodeChunkStore, error) {
 	for _, chunk := range cluster.Chunks {
@@ -109,8 +120,7 @@ func (cluster *ClusterStore) FindChunkByProxy(proxyAddress string) (*NodeChunkSt
 // SplitSlots splits the slots from the first half to the second half.
 func (cluster *ClusterStore) SplitSlots(newEpoch uint64) error {
 	if len(cluster.Chunks) < 2 {
-		log.Info("Cannot migrate slots, number of chunks is not even.")
-		return ErrCanNotMigrate
+		return errors.WithStack(fmt.Errorf("number of chunks is not even: %d", len(cluster.Chunks)))
 	}
 	if len(cluster.Chunks)%2 != 0 {
 		return errors.WithStack(fmt.Errorf("invalid chunk number %d", len(cluster.Chunks)))
@@ -231,6 +241,78 @@ func (cluster *ClusterStore) CommitMigration(taskSlots SlotRange) error {
 	return ErrMigrationTaskNotFound
 }
 
+// LimitMigration reduces the concurrent migration flags.
+// This implementation is a bit tricky. The stored data do not allow some of shards
+// are migrating while others not. They are all set with the flags.
+// We only reduce the migration in the query API.
+// (1) Only the former shards finish the migration, will the later ones get started.
+// (2) And once started, since the former one will not restart migration again,
+// the later ones will not stop until they are done.
+// (3) The later migration flags will be updated to server proxies with new epoch
+// bumped by the committing of former ones.
+func (cluster *ClusterStore) LimitMigration(migrationLimit int64) (*ClusterStore, error) {
+	newChunks := make([]*NodeChunkStore, 0, len(cluster.Chunks))
+
+	var migrationNum int64
+
+	for _, chunk := range cluster.Chunks {
+		slots := chunk.Slots
+		newSlots := [2][]SlotRangeStore{}
+
+		for i := 0; i != 2; i++ {
+			if len(slots[i]) == 0 {
+				newSlots[i] = []SlotRangeStore{}
+				continue
+			}
+			if len(slots[i]) > 2 {
+				err := errors.New("number of slot range is larger than 2")
+				log.Error(err)
+				return nil, errors.WithStack(err)
+			}
+			newSlotRanges := []SlotRangeStore{}
+			for _, sr := range slots[i] {
+				if sr.Tag.TagType == NoneTag {
+					newSlotRanges = append(newSlotRanges, sr)
+				} else if sr.Tag.TagType == ImportingTag {
+					migratingIndex := sr.Tag.Meta.SrcProxyIndex
+					chunkIndex := migratingIndex / 2
+					indexInsideChunk := migratingIndex % 2
+
+					srcSlots := newChunks[chunkIndex].Slots[indexInsideChunk]
+					// The last one should be the migrating one.
+					srcSr := srcSlots[len(srcSlots)-1]
+					if srcSr.Tag.TagType == MigratingTag {
+						newSlotRanges = append(newSlotRanges, sr)
+					}
+				} else if sr.Tag.TagType == MigratingTag {
+					if migrationNum < migrationLimit {
+						newSlotRanges = append(newSlotRanges, sr)
+						migrationNum++
+					} else {
+						newSlotRanges = append(newSlotRanges, SlotRangeStore{
+							Start: sr.Start,
+							End:   sr.End,
+							Tag:   SlotRangeTagStore{TagType: NoneTag},
+						})
+					}
+				}
+			}
+			newSlots[i] = newSlotRanges
+		}
+
+		newChunk := &NodeChunkStore{
+			RolePosition: chunk.RolePosition,
+			Slots:        newSlots,
+			Nodes:        chunk.Nodes,
+		}
+		newChunks = append(newChunks, newChunk)
+	}
+
+	return &ClusterStore{
+		Chunks: newChunks,
+	}, nil
+}
+
 // ChunkRolePosition indicates the roles in the chunk
 type ChunkRolePosition int
 
@@ -246,8 +328,10 @@ const (
 // NodeChunkStore stores 4 nodes as a group
 type NodeChunkStore struct {
 	RolePosition ChunkRolePosition
-	Slots        [2][]SlotRangeStore `json:"slots"`
-	Nodes        [4]*NodeStore       `json:"nodes"`
+	// Currently []SlotRangeStore has only at most one SlotRange with NoneTag
+	// and at most one SlotRange with Migrating or Importing Tag.
+	Slots [2][]SlotRangeStore `json:"slots"`
+	Nodes [4]*NodeStore       `json:"nodes"`
 }
 
 // GetMasterNodes gets the master nodes
@@ -336,19 +420,13 @@ type MigrationMetaStore struct {
 	DstProxyIndex uint64 `json:"dst_proxy_index"`
 }
 
-func parseNodes(clusterData []byte) ([]*Node, error) {
-	cluster := &ClusterStore{}
-	err := cluster.Decode(clusterData)
-	if err != nil {
-		return nil, err
-	}
-
+func parseNodes(cluster *ClusterStore) ([]*Node, error) {
 	nodes := make([]*Node, 0, len(cluster.Chunks)*chunkSize)
 	slots := make([][]SlotRangeStore, 0, len(cluster.Chunks)/2)
 	chunkRoles := make([]ChunkRolePosition, 0, len(cluster.Chunks))
 	for _, chunk := range cluster.Chunks {
 		if len(chunk.Nodes) != chunkSize {
-			err = fmt.Errorf("invalid nodes of chunk %v", chunk.Nodes)
+			err := fmt.Errorf("invalid nodes of chunk %v", chunk.Nodes)
 			return nil, errors.WithStack(err)
 		}
 
@@ -362,7 +440,7 @@ func parseNodes(clusterData []byte) ([]*Node, error) {
 			}
 			nodes = append(nodes, node)
 		}
-		err = setRepl(chunk.RolePosition, nodes[len(nodes)-chunkSize:len(nodes)])
+		err := setRepl(chunk.RolePosition, nodes[len(nodes)-chunkSize:len(nodes)])
 		if err != nil {
 			return nil, err
 		}
@@ -374,7 +452,7 @@ func parseNodes(clusterData []byte) ([]*Node, error) {
 		chunkRoles = append(chunkRoles, chunk.RolePosition)
 	}
 
-	err = setSlots(nodes, chunkRoles, slots)
+	err := setSlots(nodes, chunkRoles, slots)
 	if err != nil {
 		return nil, err
 	}

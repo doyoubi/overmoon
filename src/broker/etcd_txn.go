@@ -475,6 +475,10 @@ func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
 	if freeStartIndex == 0 {
 		return ErrProxyInUse
 	}
+	// Trick to checks if it's power of 2 excluding zero.
+	if freeStartIndex > 1 && freeStartIndex&(freeStartIndex-1) == 0 {
+		return errors.WithStack(errors.Errorf("freeStartIndex is larger than 1 but is not power of 2: %d", freeStartIndex))
+	}
 
 	cluster.Chunks = cluster.Chunks[:freeStartIndex]
 	err = txn.updateCluster(clusterName, globalEpoch+1, cluster)

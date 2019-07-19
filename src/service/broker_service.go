@@ -15,10 +15,11 @@ import (
 )
 
 type proxyConfig struct {
-	address    string
-	pathPrefix string
-	failureTTL int64
-	etcdNodes  []string
+	address        string
+	pathPrefix     string
+	failureTTL     int64
+	etcdNodes      []string
+	migrationLimit int64
 }
 
 func getConfig() (*proxyConfig, error) {
@@ -39,7 +40,7 @@ func getConfig() (*proxyConfig, error) {
 		pathPrefix = "/undermoon"
 	}
 	failureTTL := viper.GetInt64("failure_ttl")
-	if failureTTL == 0 {
+	if failureTTL <= 0 {
 		failureTTL = 60
 	}
 	etcdNodes := viper.GetStringSlice("etcd_nodes")
@@ -47,11 +48,17 @@ func getConfig() (*proxyConfig, error) {
 		etcdNodes = []string{"127.0.0.1:2380"}
 	}
 
+	migrationLimit := viper.GetInt64("migration_limit")
+	if migrationLimit <= 0 {
+		migrationLimit = 2
+	}
+
 	return &proxyConfig{
-		address:    address,
-		pathPrefix: pathPrefix,
-		failureTTL: failureTTL,
-		etcdNodes:  etcdNodes,
+		address:        address,
+		pathPrefix:     pathPrefix,
+		failureTTL:     failureTTL,
+		etcdNodes:      etcdNodes,
+		migrationLimit: migrationLimit,
 	}, nil
 }
 
@@ -66,8 +73,9 @@ func RunBrokerService() error {
 	log.Infof("config: %+v\n", config)
 
 	brokerCfg := &broker.EtcdConfig{
-		PathPrefix: config.pathPrefix,
-		FailureTTL: config.failureTTL,
+		PathPrefix:     config.pathPrefix,
+		FailureTTL:     config.failureTTL,
+		MigrationLimit: config.migrationLimit,
 	}
 	metaBroker, err := broker.NewEtcdMetaBrokerFromEndpoints(brokerCfg, config.etcdNodes)
 	if err != nil {

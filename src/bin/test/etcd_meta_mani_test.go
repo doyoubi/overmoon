@@ -25,8 +25,9 @@ func initManiData(assert *assert.Assertions) {
 
 func genManiBroker(assert *assert.Assertions) *broker.EtcdMetaManipulationBroker {
 	cfg := &broker.EtcdConfig{
-		PathPrefix: "/integration_test",
-		FailureTTL: 10,
+		PathPrefix:     "/integration_test",
+		FailureTTL:     10,
+		MigrationLimit: 8,
 	}
 	metaBroker, err := broker.NewEtcdMetaBrokerFromEndpoints(cfg, endpoints)
 	assert.Nil(err)
@@ -231,7 +232,7 @@ func TestAddNodes(t *testing.T) {
 	assert.NoError(err)
 
 	metaBroker.ClearCache()
-	err = maniBroker.AddNodesToCluster(ctx, clusterName, 8)
+	err = maniBroker.AddNodesToCluster(ctx, clusterName)
 	assert.NoError(err)
 
 	metaBroker.ClearCache()
@@ -367,7 +368,7 @@ func TestRemoveProxies(t *testing.T) {
 	assert.NoError(err)
 
 	metaBroker.ClearCache()
-	err = maniBroker.AddNodesToCluster(ctx, clusterName, 8)
+	err = maniBroker.AddNodesToCluster(ctx, clusterName)
 	assert.NoError(err)
 
 	metaBroker.ClearCache()
