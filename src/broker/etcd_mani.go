@@ -124,6 +124,11 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 	if nodeNum%chunkSize != 0 || nodeNum%halfChunkSize != 0 || nodeNum == 0 {
 		return ErrInvalidNodesNum
 	}
+	chunkNum := nodeNum / chunkSize
+	// Trick to checks if it's power of 2 excluding zero.
+	if chunkNum > 1 && chunkNum&(chunkNum-1) != 0 {
+		return ErrInvalidNodesNum
+	}
 
 	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
 	if err != nil {
