@@ -27,6 +27,9 @@ var ErrMigrationTaskNotFound = errors.New("migration task not found")
 // ErrMigrationTaskNotMatch indicates we can't find a slot range matches the task.
 var ErrMigrationTaskNotMatch = errors.New("migration task not found")
 
+// ErrNoAvailableNodes indicates no nodes with empty slots found.
+var ErrNoAvailableNodes = errors.New("no available nodes to start migration")
+
 // ProxyStore stores the basic proxy metadata
 type ProxyStore struct {
 	ProxyIndex    uint64   `json:"proxy_index"`
@@ -120,10 +123,10 @@ func (cluster *ClusterStore) FindChunkByProxy(proxyAddress string) (*NodeChunkSt
 // SplitSlots splits the slots from the first half to the second half.
 func (cluster *ClusterStore) SplitSlots(newEpoch uint64) error {
 	if len(cluster.Chunks) < 2 {
-		return errors.WithStack(fmt.Errorf("number of chunks is not even: %d", len(cluster.Chunks)))
+		return ErrNoAvailableNodes
 	}
 	if len(cluster.Chunks)%2 != 0 {
-		return errors.WithStack(fmt.Errorf("invalid chunk number %d", len(cluster.Chunks)))
+		return errors.WithStack(fmt.Errorf("number of chunks is not even: %d", len(cluster.Chunks)))
 	}
 	halfChunkNum := uint64(len(cluster.Chunks) / 2)
 

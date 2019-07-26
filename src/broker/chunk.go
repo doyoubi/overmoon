@@ -32,20 +32,20 @@ type chunkAllocator struct {
 	ipIndexMap map[string]int
 }
 
-func newChunkAllocator(proxies []string, expectedProxyNum uint64) (*chunkAllocator, error) {
-	chunks := make([]*NodeChunkStore, 0)
-	return newChunkAllocatorWithExistingChunks(proxies, expectedProxyNum, chunks, false)
+func newChunkAllocator(freeProxies []string, newAddedProxyNum uint64) (*chunkAllocator, error) {
+	existingChunks := make([]*NodeChunkStore, 0)
+	return newChunkAllocatorWithExistingChunks(freeProxies, newAddedProxyNum, existingChunks, false)
 }
 
-func newChunkReplaceProxyAllocator(proxies []string, chunks []*NodeChunkStore) (*chunkAllocator, error) {
-	return newChunkAllocatorWithExistingChunks(proxies, uint64(len(proxies)), chunks, true)
+func newChunkReplaceProxyAllocator(freeProxies []string, existingChunks []*NodeChunkStore) (*chunkAllocator, error) {
+	return newChunkAllocatorWithExistingChunks(freeProxies, uint64(len(freeProxies)), existingChunks, true)
 }
 
-func newChunkAllocatorWithExistingChunks(proxies []string, expectedProxyNum uint64, chunks []*NodeChunkStore, replaceProxy bool) (*chunkAllocator, error) {
-	if !replaceProxy && expectedProxyNum%2 != 0 {
+func newChunkAllocatorWithExistingChunks(freeProxies []string, newAddedProxyNum uint64, existingChunks []*NodeChunkStore, replaceProxy bool) (*chunkAllocator, error) {
+	if !replaceProxy && newAddedProxyNum%2 != 0 {
 		return nil, ErrInvalidRequestedProxyNum
 	}
-	hostTable, linkTable, ipIndexMap, err := initChunkTable(proxies, expectedProxyNum, chunks, replaceProxy)
+	hostTable, linkTable, ipIndexMap, err := initChunkTable(freeProxies, newAddedProxyNum, existingChunks, replaceProxy)
 	log.Infof("hostTable %+v, linkTable %+v", hostTable, linkTable)
 	if err != nil {
 		return nil, err
@@ -138,11 +138,15 @@ func (alloc *chunkAllocator) consumeLeastLink(maxIndex int) (peerAddress string,
 	return peerAddress, peerIndex, nil
 }
 
-func initChunkTable(proxies []string, expectedProxyNum uint64, chunks []*NodeChunkStore, replaceProxy bool) ([][]string, [][]int, map[string]int, error) {
-	proxyMap := genProxyMap(proxies)
-	proxyMap = removeAdditionalProxies(proxyMap, expectedProxyNum)
+func initChunkTable(freeProxies []string, newAddedProxyNum uint64, existingChunks []*NodeChunkStore, replaceProxy bool) ([][]string, [][]int, map[string]int, error) {
+	if uint64(len(freeProxies)) < newAddedProxyNum {
+		return nil, nil, nil, ErrNoAvailableResource
+	}
 
-	for _, chunk := range chunks {
+	proxyMap := genProxyMap(freeProxies)
+	proxyMap = removeAdditionalProxies(proxyMap, newAddedProxyNum)
+
+	for _, chunk := range existingChunks {
 		for i, node := range chunk.Nodes {
 			if i%2 == 1 {
 				continue
@@ -166,7 +170,7 @@ func initChunkTable(proxies []string, expectedProxyNum uint64, chunks []*NodeChu
 		ipIndex++
 	}
 
-	if uint64(getHostSum(hostTable)) != expectedProxyNum {
+	if uint64(getHostSum(hostTable)) != newAddedProxyNum {
 		return nil, nil, nil, ErrNoChunkResource
 	}
 
@@ -175,7 +179,7 @@ func initChunkTable(proxies []string, expectedProxyNum uint64, chunks []*NodeChu
 		linkTable[i] = make([]int, len(hostTable), len(hostTable))
 	}
 
-	for _, chunk := range chunks {
+	for _, chunk := range existingChunks {
 		firstIP, err := getIP(chunk.Nodes[0].ProxyAddress)
 		if err != nil {
 			return nil, nil, nil, err

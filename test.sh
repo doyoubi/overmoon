@@ -20,7 +20,7 @@ elif [ "$arg" = "cluster" ]; then
 
 curl -XPOST -H 'Content-Type: application/json' localhost:7799/api/clusters -d'{"cluster_name":"mydb","node_number":4}' -v
 curl localhost:7799/api/clusters/meta/mydb | python -m json.tool
-curl -v -XPUT -H 'Content-Type: application/json' localhost:7799/api/clusters/nodes/mydb -d'{"expected_node_number":8}'
+curl -v -XPUT -H 'Content-Type: application/json' localhost:7799/api/clusters/nodes/mydb
 curl localhost:7799/api/clusters/meta/mydb | python -m json.tool
 
 curl -v -XDELETE -H 'Content-Type: application/json' localhost:7799/api/clusters/free_nodes/mydb

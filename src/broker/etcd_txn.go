@@ -459,9 +459,10 @@ func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
 	}
 
 	free := []string{}
+	// The first chunk should always has slots.
 	var freeStartIndex int
 	for i, chunk := range cluster.Chunks {
-		if len(chunk.Slots[0]) == 0 && len(chunk.Slots[1]) == 0 {
+		if freeStartIndex == 0 && len(chunk.Slots[0]) == 0 && len(chunk.Slots[1]) == 0 {
 			freeStartIndex = i
 		}
 		if freeStartIndex != 0 {
@@ -476,7 +477,7 @@ func (txn *TxnBroker) removeUnusedProxiesFromCluster(clusterName string) error {
 		return ErrProxyInUse
 	}
 	// Trick to checks if it's power of 2 excluding zero.
-	if freeStartIndex > 1 && freeStartIndex&(freeStartIndex-1) == 0 {
+	if freeStartIndex > 1 && freeStartIndex&(freeStartIndex-1) != 0 {
 		return errors.WithStack(errors.Errorf("freeStartIndex is larger than 1 but is not power of 2: %d", freeStartIndex))
 	}
 

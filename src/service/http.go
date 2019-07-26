@@ -294,6 +294,7 @@ func (proxy *HTTPBrokerProxy) handleMigrateSlots(c *gin.Context) {
 		broker.ErrClusterNotFound:  httpResponse{statusCode: 404, errorMsg: fmt.Sprintf("cluster %s not found", clusterName)},
 		broker.ErrCanNotMigrate:    httpResponse{statusCode: 400, errorMsg: "cannot migrate"},
 		broker.ErrAlreadyMigrating: httpResponse{statusCode: 400, errorMsg: "already migrating"},
+		broker.ErrNoAvailableNodes: httpResponse{statusCode: 400, errorMsg: "no available nodes with empty slots found"},
 	}
 	if response, ok := errMap[err]; ok {
 		c.JSON(response.statusCode, gin.H{
