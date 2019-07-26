@@ -103,9 +103,10 @@ type Cluster struct {
 
 // Host is the proxies on each physical machine.
 type Host struct {
-	Address string  `json:"address"`
-	Epoch   uint64  `json:"epoch"`
-	Nodes   []*Node `json:"nodes"`
+	Address   string   `json:"address"`
+	Epoch     uint64   `json:"epoch"`
+	Nodes     []*Node  `json:"nodes"`
+	FreeNodes []string `json:"free_nodes"`
 }
 
 // MaxSlotNumber is specified by Redis Cluster
