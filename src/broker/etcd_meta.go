@@ -238,9 +238,10 @@ func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address str
 	}
 	if meta.ClusterName == "" {
 		host := &Host{
-			Address: address,
-			Epoch:   globalEpoch,
-			Nodes:   []*Node{},
+			Address:   address,
+			Epoch:     globalEpoch,
+			Nodes:     []*Node{},
+			FreeNodes: meta.NodeAddresses,
 		}
 		return host, nil
 	}
@@ -262,9 +263,10 @@ func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address str
 	}
 
 	host := &Host{
-		Address: address,
-		Epoch:   cluster.Epoch,
-		Nodes:   nodes,
+		Address:   address,
+		Epoch:     cluster.Epoch,
+		Nodes:     nodes,
+		FreeNodes: []string{},
 	}
 	return host, nil
 }
