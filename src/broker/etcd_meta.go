@@ -242,6 +242,7 @@ func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address str
 			Epoch:     globalEpoch,
 			Nodes:     []*Node{},
 			FreeNodes: meta.NodeAddresses,
+			Peers:     []*PeerProxy{},
 		}
 		return host, nil
 	}
@@ -256,10 +257,25 @@ func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address str
 	}
 
 	nodes := make([]*Node, 0)
+	peerSlots := make(map[string][]SlotRange, 0)
+	peers := make([]*PeerProxy, 0)
 	for _, node := range cluster.Nodes {
 		if node.ProxyAddress == address {
 			nodes = append(nodes, node)
+		} else {
+			if _, ok := peerSlots[node.ProxyAddress]; !ok {
+				peerSlots[node.ProxyAddress] = make([]SlotRange, 0)
+			}
+			peerSlots[node.ProxyAddress] = append(peerSlots[node.ProxyAddress], node.Slots...)
 		}
+	}
+
+	for proxyAddress, slots := range peerSlots {
+		peers = append(peers, &PeerProxy{
+			ProxyAddress: proxyAddress,
+			ClusterName:  cluster.Name,
+			Slots:        slots,
+		})
 	}
 
 	host := &Host{
@@ -267,6 +283,7 @@ func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address str
 		Epoch:     cluster.Epoch,
 		Nodes:     nodes,
 		FreeNodes: []string{},
+		Peers:     peers,
 	}
 	return host, nil
 }
