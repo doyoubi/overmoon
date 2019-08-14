@@ -101,12 +101,20 @@ type Cluster struct {
 	Nodes []*Node `json:"nodes"`
 }
 
+// PeerProxy is used for server proxy to do the redirection.
+type PeerProxy struct {
+	ProxyAddress string      `json:"proxy_address"`
+	ClusterName  string      `json:"cluster_name"`
+	Slots        []SlotRange `json:"slots"`
+}
+
 // Host is the proxies on each physical machine.
 type Host struct {
-	Address   string   `json:"address"`
-	Epoch     uint64   `json:"epoch"`
-	Nodes     []*Node  `json:"nodes"`
-	FreeNodes []string `json:"free_nodes"`
+	Address   string       `json:"address"`
+	Epoch     uint64       `json:"epoch"`
+	Nodes     []*Node      `json:"nodes"`
+	FreeNodes []string     `json:"free_nodes"`
+	Peers     []*PeerProxy `json:"peers"`
 }
 
 // MaxSlotNumber is specified by Redis Cluster
