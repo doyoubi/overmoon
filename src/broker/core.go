@@ -96,9 +96,10 @@ type Node struct {
 
 // Cluster is the redis cluster we implement.
 type Cluster struct {
-	Name  string  `json:"name"`
-	Epoch uint64  `json:"epoch"`
-	Nodes []*Node `json:"nodes"`
+	Name   string        `json:"name"`
+	Epoch  uint64        `json:"epoch"`
+	Nodes  []*Node       `json:"nodes"`
+	Config ClusterConfig `json:"config"`
 }
 
 // PeerProxy is used for server proxy to do the redirection.
@@ -110,11 +111,12 @@ type PeerProxy struct {
 
 // Host is the proxies on each physical machine.
 type Host struct {
-	Address   string       `json:"address"`
-	Epoch     uint64       `json:"epoch"`
-	Nodes     []*Node      `json:"nodes"`
-	FreeNodes []string     `json:"free_nodes"`
-	Peers     []*PeerProxy `json:"peers"`
+	Address        string                   `json:"address"`
+	Epoch          uint64                   `json:"epoch"`
+	Nodes          []*Node                  `json:"nodes"`
+	FreeNodes      []string                 `json:"free_nodes"`
+	Peers          []*PeerProxy             `json:"peers"`
+	ClustersConfig map[string]ClusterConfig `json:"clusters_config"`
 }
 
 // MaxSlotNumber is specified by Redis Cluster
@@ -135,6 +137,29 @@ type migratingSlotRangeTag struct {
 
 type importingSlotRangeTag struct {
 	Importing *MigrationMeta `json:"Importing"`
+}
+
+const (
+	// CompressionStrategyDisabled disables compression
+	CompressionStrategyDisabled = "disabled"
+	// CompressionStrategySetGetOnly enables compression and restrict the commands
+	// to only SET family and GET for string data type.
+	CompressionStrategySetGetOnly = "set_get_only"
+	// CompressionStrategyAllowAll enables compression and allow all the commands,
+	// even though they will get the wrong results.
+	CompressionStrategyAllowAll = "allow_all"
+)
+
+// ClusterConfig is the config of each cluster.
+type ClusterConfig struct {
+	CompressionStrategy string `json:"compression_strategy"`
+}
+
+// NewClusterConfig creates ClusterConfig with default settings.
+func NewClusterConfig() *ClusterConfig {
+	return &ClusterConfig{
+		CompressionStrategy: CompressionStrategyDisabled,
+	}
 }
 
 // MarshalJSON changes the json format of SlotRangeTag to the Rust Serde format.

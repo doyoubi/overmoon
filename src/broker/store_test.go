@@ -108,6 +108,7 @@ func genTestingClusterStore(nodeNum int) *ClusterStore {
 	}
 	return &ClusterStore{
 		Chunks: chunks,
+		Config: NewClusterConfig(),
 	}
 }
 

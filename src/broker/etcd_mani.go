@@ -113,7 +113,7 @@ func (broker *EtcdMetaManipulationBroker) AddProxy(ctx context.Context, address 
 		return nil
 	})
 	if err != nil {
-		log.Errorf("failed to add host. response: %v. error: %v", response, err)
+		log.Warnf("failed to add host. response: %v. error: %v", response, err)
 		return err
 	}
 	return nil
@@ -155,7 +155,10 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 			return err
 		}
 		chunks = initChunkSlots(chunks)
-		cluster = &ClusterStore{Chunks: chunks}
+		cluster = &ClusterStore{
+			Chunks: chunks,
+			Config: NewClusterConfig(),
+		}
 		txn.createCluster(clusterName, cluster)
 		return nil
 	})

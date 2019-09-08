@@ -60,6 +60,7 @@ func prepareData(assert *assert.Assertions) {
 	}
 	cluster := &broker.ClusterStore{
 		Chunks: []*broker.NodeChunkStore{chunk1},
+		Config: broker.NewClusterConfig(),
 	}
 	clusterStr, err := cluster.Encode()
 	assert.NoError(err)

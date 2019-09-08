@@ -93,6 +93,7 @@ type NodeStore struct {
 // ClusterStore stores the nodes
 type ClusterStore struct {
 	Chunks []*NodeChunkStore `json:"chunks"`
+	Config *ClusterConfig    `json:"cluster_config"`
 }
 
 // HasEmptyChunks checks whether there're still chunks
@@ -313,6 +314,7 @@ func (cluster *ClusterStore) LimitMigration(migrationLimit int64) (*ClusterStore
 
 	return &ClusterStore{
 		Chunks: newChunks,
+		Config: cluster.Config,
 	}, nil
 }
 
@@ -397,6 +399,12 @@ func (cluster *ClusterStore) Decode(data []byte) error {
 					return errors.WithStack(errMissingField)
 				}
 			}
+		}
+	}
+
+	if cluster.Config == nil {
+		cluster.Config = &ClusterConfig{
+			CompressionStrategy: CompressionStrategyDisabled,
 		}
 	}
 
