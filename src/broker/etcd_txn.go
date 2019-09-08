@@ -513,3 +513,19 @@ func (txn *TxnBroker) removeCluster(clusterName string) error {
 
 	return txn.freeProxiesFromCluster(proxies)
 }
+
+func (txn *TxnBroker) setClusterConfig(clusterName string, config map[string]string) error {
+	globalEpoch, _, cluster, err := txn.getCluster(clusterName)
+	if err != nil {
+		return err
+	}
+
+	for k, v := range config {
+		err := cluster.setConfigField(k, v)
+		if err != nil {
+			return fmt.Errorf("invalid config: %s = %s", k, v)
+		}
+	}
+
+	return txn.updateCluster(clusterName, globalEpoch+1, cluster)
+}

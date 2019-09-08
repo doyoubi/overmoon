@@ -148,3 +148,16 @@ func TestLimitMigration(t *testing.T) {
 
 	}
 }
+
+func TestSetClusterConfig(t *testing.T) {
+	assert := assert.New(t)
+
+	store := &ClusterStore{
+		Chunks: []*NodeChunkStore{},
+		Config: NewClusterConfig(),
+	}
+	assert.Equal(CompressionStrategyDisabled, store.Config.CompressionStrategy)
+	err := store.setConfigField("compression_strategy", "set_get_only")
+	assert.NoError(err)
+	assert.Equal(CompressionStrategySetGetOnly, store.Config.CompressionStrategy)
+}

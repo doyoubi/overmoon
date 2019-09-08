@@ -60,6 +60,7 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	logGroup.DELETE("/clusters/free_nodes/:clusterName", proxy.handleRemoveUnusedProxiesFromCluster)
 	logGroup.DELETE("/clusters/meta/:clusterName", proxy.handleRemoveCluster)
 	logGroup.GET("/version", proxy.handlerGetVersion)
+	logGroup.PUT("clusters/config/:clusterName", proxy.handleSetClusterConfig)
 
 	return r.Run(proxy.address)
 }
@@ -409,4 +410,32 @@ func (proxy *HTTPBrokerProxy) handleRemoveCluster(c *gin.Context) {
 
 func (proxy *HTTPBrokerProxy) handlerGetVersion(c *gin.Context) {
 	c.String(200, OvermoonVersion)
+}
+
+func (proxy *HTTPBrokerProxy) handleSetClusterConfig(c *gin.Context) {
+	clusterName := c.Param("clusterName")
+
+	config := make(map[string]string, 0)
+	err := c.BindJSON(&config)
+	if err != nil {
+		c.JSON(400, gin.H{
+			"error": fmt.Sprintf("failed to get json payload %s", err),
+		})
+		return
+	}
+
+	err = proxy.maniBroker.SetConfig(proxy.ctx, clusterName, config)
+	if err == broker.ErrInvalidClusterConfig {
+		c.JSON(400, gin.H{
+			"error": fmt.Sprintf("invalid config: %+v", err),
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(500, gin.H{
+			"error": fmt.Sprintf("failed to change cluster config %s: %+v", clusterName, err),
+		})
+		return
+	}
+	c.String(200, "")
 }

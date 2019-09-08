@@ -320,3 +320,16 @@ func (broker *EtcdMetaManipulationBroker) RemoveCluster(ctx context.Context, clu
 	}
 	return err
 }
+
+// SetConfig change the config of cluster
+func (broker *EtcdMetaManipulationBroker) SetConfig(ctx context.Context, clusterName string, config map[string]string) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		return txn.setClusterConfig(clusterName, config)
+	})
+
+	if err != nil {
+		log.Errorf("failed to remove cluster. response: %v. error: %v", response, err)
+	}
+	return err
+}
