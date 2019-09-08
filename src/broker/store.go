@@ -420,9 +420,7 @@ func (cluster *ClusterStore) Decode(data []byte) error {
 	}
 
 	if cluster.Config == nil {
-		cluster.Config = &ClusterConfig{
-			CompressionStrategy: CompressionStrategyDisabled,
-		}
+		cluster.Config = NewClusterConfig()
 	}
 
 	return nil
