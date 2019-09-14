@@ -59,6 +59,7 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	logGroup.DELETE("/proxies/nodes/:proxyAddress", proxy.handleRemoveProxy)
 	logGroup.DELETE("/clusters/free_nodes/:clusterName", proxy.handleRemoveUnusedProxiesFromCluster)
 	logGroup.DELETE("/clusters/meta/:clusterName", proxy.handleRemoveCluster)
+	logGroup.GET("/version", proxy.handlerGetVersion)
 
 	return r.Run(proxy.address)
 }
@@ -404,4 +405,8 @@ func (proxy *HTTPBrokerProxy) handleRemoveCluster(c *gin.Context) {
 		return
 	}
 	c.String(200, "")
+}
+
+func (proxy *HTTPBrokerProxy) handlerGetVersion(c *gin.Context) {
+	c.String(200, OvermoonVersion)
 }
