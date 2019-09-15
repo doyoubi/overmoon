@@ -134,7 +134,7 @@ func (broker *EtcdMetaBroker) getClusterFromEtcd(ctx context.Context, name strin
 	clusterEpochKey := fmt.Sprintf("%s/clusters/epoch/%s", broker.config.PathPrefix, name)
 	clusterNodesKey := fmt.Sprintf("%s/clusters/nodes/%s", broker.config.PathPrefix, name)
 
-	globalEpoch, epoch, nodes, err := broker.getEpochAndNodes(ctx, globalEpochKey, clusterEpochKey, clusterNodesKey)
+	globalEpoch, epoch, nodes, config, err := broker.getEpochAndNodes(ctx, globalEpochKey, clusterEpochKey, clusterNodesKey)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -147,14 +147,15 @@ func (broker *EtcdMetaBroker) getClusterFromEtcd(ctx context.Context, name strin
 	}
 
 	cluster := &Cluster{
-		Name:  name,
-		Epoch: epoch,
-		Nodes: nodes,
+		Name:   name,
+		Epoch:  epoch,
+		Nodes:  nodes,
+		Config: *config,
 	}
 	return globalEpoch, cluster, nil
 }
 
-func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochKey, epochKey, nodesKey string) (uint64, uint64, []*Node, error) {
+func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochKey, epochKey, nodesKey string) (uint64, uint64, []*Node, *ClusterConfig, error) {
 	response, err := broker.client.Txn(ctx).Then(
 		clientv3.OpGet(globalEpochKey),
 		clientv3.OpGet(epochKey),
@@ -162,54 +163,54 @@ func (broker *EtcdMetaBroker) getEpochAndNodes(ctx context.Context, globalEpochK
 	).Commit()
 
 	if err != nil {
-		return 0, 0, nil, errors.WithStack(err)
+		return 0, 0, nil, nil, errors.WithStack(err)
 	}
 	if !response.Succeeded {
-		return 0, 0, nil, ErrTxnFailed
+		return 0, 0, nil, nil, ErrTxnFailed
 	}
 	if len(response.Responses) != 3 {
-		return 0, 0, nil, errors.WithStack(errInvalidKeyNum)
+		return 0, 0, nil, nil, errors.WithStack(errInvalidKeyNum)
 	}
 
 	globalEpochRes := response.Responses[0].GetResponseRange()
 	globalEpoch, err := parseEpoch(globalEpochRes.Kvs)
 	if err != nil {
 		if err == errNotExists {
-			return 0, 0, nil, ErrGlobalEpochNotFound
+			return 0, 0, nil, nil, ErrGlobalEpochNotFound
 		}
-		return 0, 0, nil, err
+		return 0, 0, nil, nil, err
 	}
 
 	epochRes := response.Responses[1].GetResponseRange()
 	epoch, err := parseEpoch(epochRes.Kvs)
 	if err == errNotExists {
-		return globalEpoch, 0, nil, ErrClusterNotFound
+		return globalEpoch, 0, nil, nil, ErrClusterNotFound
 	}
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, 0, nil, nil, err
 	}
 
 	nodesRes := response.Responses[2].GetResponseRange()
 	if len(nodesRes.Kvs) != 1 {
-		return 0, 0, nil, errors.WithStack(errInvalidKeyNum)
+		return 0, 0, nil, nil, errors.WithStack(errInvalidKeyNum)
 	}
 
 	cluster := &ClusterStore{}
 	err = cluster.Decode(nodesRes.Kvs[0].Value)
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, 0, nil, nil, err
 	}
 	cluster, err = cluster.LimitMigration(broker.config.MigrationLimit)
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, 0, nil, nil, err
 	}
 
 	nodes, err := parseNodes(cluster)
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, 0, nil, nil, err
 	}
 
-	return globalEpoch, epoch, nodes, nil
+	return globalEpoch, epoch, nodes, cluster.Config, nil
 }
 
 // GetProxyAddresses queries all proxies.
@@ -238,11 +239,12 @@ func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address str
 	}
 	if meta.ClusterName == "" {
 		host := &Host{
-			Address:   address,
-			Epoch:     globalEpoch,
-			Nodes:     []*Node{},
-			FreeNodes: meta.NodeAddresses,
-			Peers:     []*PeerProxy{},
+			Address:        address,
+			Epoch:          globalEpoch,
+			Nodes:          []*Node{},
+			FreeNodes:      meta.NodeAddresses,
+			Peers:          []*PeerProxy{},
+			ClustersConfig: make(map[string]ClusterConfig, 0),
 		}
 		return host, nil
 	}
@@ -278,12 +280,16 @@ func (broker *EtcdMetaBroker) getProxyFromCache(ctx context.Context, address str
 		})
 	}
 
+	clustersConfig := make(map[string]ClusterConfig, 1)
+	clustersConfig[cluster.Name] = cluster.Config
+
 	host := &Host{
-		Address:   address,
-		Epoch:     cluster.Epoch,
-		Nodes:     nodes,
-		FreeNodes: []string{},
-		Peers:     peers,
+		Address:        address,
+		Epoch:          cluster.Epoch,
+		Nodes:          nodes,
+		FreeNodes:      []string{},
+		Peers:          peers,
+		ClustersConfig: clustersConfig,
 	}
 	return host, nil
 }

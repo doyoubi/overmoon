@@ -30,6 +30,9 @@ var ErrMigrationTaskNotMatch = errors.New("migration task not found")
 // ErrNoAvailableNodes indicates no nodes with empty slots found.
 var ErrNoAvailableNodes = errors.New("no available nodes to start migration")
 
+// ErrInvalidClusterConfig indicates the config is invalid
+var ErrInvalidClusterConfig = errors.New("invalid cluster config")
+
 // ProxyStore stores the basic proxy metadata
 type ProxyStore struct {
 	ProxyIndex    uint64   `json:"proxy_index"`
@@ -93,6 +96,7 @@ type NodeStore struct {
 // ClusterStore stores the nodes
 type ClusterStore struct {
 	Chunks []*NodeChunkStore `json:"chunks"`
+	Config *ClusterConfig    `json:"cluster_config"`
 }
 
 // HasEmptyChunks checks whether there're still chunks
@@ -313,7 +317,22 @@ func (cluster *ClusterStore) LimitMigration(migrationLimit int64) (*ClusterStore
 
 	return &ClusterStore{
 		Chunks: newChunks,
+		Config: cluster.Config,
 	}, nil
+}
+
+func (cluster *ClusterStore) setConfigField(field, value string) error {
+	switch field {
+	case "compression_strategy":
+		if value == CompressionStrategyDisabled || value == CompressionStrategySetGetOnly || value == CompressionStrategyAllowAll {
+			cluster.Config.CompressionStrategy = value
+		} else {
+			return ErrInvalidClusterConfig
+		}
+	default:
+		return ErrInvalidClusterConfig
+	}
+	return nil
 }
 
 // ChunkRolePosition indicates the roles in the chunk
@@ -398,6 +417,10 @@ func (cluster *ClusterStore) Decode(data []byte) error {
 				}
 			}
 		}
+	}
+
+	if cluster.Config == nil {
+		cluster.Config = NewClusterConfig()
 	}
 
 	return nil

@@ -113,7 +113,7 @@ func (broker *EtcdMetaManipulationBroker) AddProxy(ctx context.Context, address 
 		return nil
 	})
 	if err != nil {
-		log.Errorf("failed to add host. response: %v. error: %v", response, err)
+		log.Warnf("failed to add host. response: %v. error: %v", response, err)
 		return err
 	}
 	return nil
@@ -155,7 +155,10 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 			return err
 		}
 		chunks = initChunkSlots(chunks)
-		cluster = &ClusterStore{Chunks: chunks}
+		cluster = &ClusterStore{
+			Chunks: chunks,
+			Config: NewClusterConfig(),
+		}
 		txn.createCluster(clusterName, cluster)
 		return nil
 	})
@@ -310,6 +313,19 @@ func (broker *EtcdMetaManipulationBroker) RemoveCluster(ctx context.Context, clu
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
 		return txn.removeCluster(clusterName)
+	})
+
+	if err != nil {
+		log.Errorf("failed to remove cluster. response: %v. error: %v", response, err)
+	}
+	return err
+}
+
+// SetConfig change the config of cluster
+func (broker *EtcdMetaManipulationBroker) SetConfig(ctx context.Context, clusterName string, config map[string]string) error {
+	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
+		txn := NewTxnBroker(broker.config, s)
+		return txn.setClusterConfig(clusterName, config)
 	})
 
 	if err != nil {

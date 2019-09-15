@@ -29,5 +29,8 @@ curl localhost:7799/api/clusters/meta/mydb | python -m json.tool
 curl -v -XDELETE localhost:7799/api/clusters/meta/mydb
 curl localhost:7799/api/clusters/names
 
+elif [ "$arg" = "config" ]; then
+curl -XPUT -H 'Content-Type: application/json' localhost:7799/api/clusters/config/mydb -d'{"compression_strategy":"set_get_only"}' -v
+
 fi
 
