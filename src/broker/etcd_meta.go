@@ -358,6 +358,10 @@ func (broker *EtcdMetaBroker) getProxyMetaFromEtcd(ctx context.Context, address 
 
 // AddFailure add failures reported by coordinators
 func (broker *EtcdMetaBroker) AddFailure(ctx context.Context, address string, reportID string) error {
+	if address == "" || reportID == "" {
+		return errors.New("empty address or reportID")
+	}
+
 	key := fmt.Sprintf("%s/failures/%s/%s", broker.config.PathPrefix, address, reportID)
 	timestamp := time.Now().Unix()
 	value := fmt.Sprintf("%v", timestamp)
