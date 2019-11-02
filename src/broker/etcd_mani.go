@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"unicode"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -19,6 +20,9 @@ var ErrClusterExists = errors.New("cluster already exists")
 
 // ErrInvalidNodesNum indicates invalid node number.
 var ErrInvalidNodesNum = errors.New("invalid node number")
+
+// ErrInvalidAddress indicates that the address is empty.
+var ErrInvalidAddress = errors.New("invalid address")
 
 // ErrInvalidRequestedNodesNum indicates invalid node number.
 var ErrInvalidRequestedNodesNum = errors.New("invalid node number")
@@ -85,6 +89,10 @@ func (broker *EtcdMetaManipulationBroker) InitGlobalEpoch() error {
 
 // AddProxy adds new proxy and removes it from failed proxies
 func (broker *EtcdMetaManipulationBroker) AddProxy(ctx context.Context, address string, nodes []string) error {
+	if address == "" {
+		return ErrInvalidAddress
+	}
+
 	if len(nodes) != halfChunkSize {
 		return ErrInvalidNodesNum
 	}
@@ -121,6 +129,11 @@ func (broker *EtcdMetaManipulationBroker) AddProxy(ctx context.Context, address 
 
 // CreateCluster creates a new cluster with specified node number
 func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error {
+	err := validateClusterName(clusterName)
+	if err != nil {
+		return err
+	}
+
 	if nodeNum%chunkSize != 0 || nodeNum%halfChunkSize != 0 || nodeNum == 0 {
 		return ErrInvalidNodesNum
 	}
@@ -171,6 +184,10 @@ func (broker *EtcdMetaManipulationBroker) CreateCluster(ctx context.Context, clu
 
 // ReplaceProxy changes the proxy and return the new one.
 func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, address string) (*Host, error) {
+	if address == "" {
+		return nil, ErrInvalidAddress
+	}
+
 	_, proxy, err := broker.metaDataBroker.getProxyMetaFromEtcd(ctx, address)
 	if err != nil {
 		return nil, err
@@ -227,6 +244,11 @@ func (broker *EtcdMetaManipulationBroker) ReplaceProxy(ctx context.Context, addr
 
 // AddNodesToCluster adds chunks to cluster.
 func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context, clusterName string) error {
+	err := validateClusterName(clusterName)
+	if err != nil {
+		return err
+	}
+
 	possiblyAvailableProxies, err := broker.metaDataBroker.getAvailableProxyAddresses(ctx)
 	if err != nil {
 		return err
@@ -258,6 +280,11 @@ func (broker *EtcdMetaManipulationBroker) AddNodesToCluster(ctx context.Context,
 
 // MigrateSlots splits the slots to another half cluster.
 func (broker *EtcdMetaManipulationBroker) MigrateSlots(ctx context.Context, clusterName string) error {
+	err := validateClusterName(clusterName)
+	if err != nil {
+		return err
+	}
+
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
 		return txn.migrateSlots(clusterName)
@@ -284,6 +311,10 @@ func (broker *EtcdMetaManipulationBroker) CommitMigration(ctx context.Context, t
 
 // RemoveProxy remove a free proxy.
 func (broker *EtcdMetaManipulationBroker) RemoveProxy(ctx context.Context, address string) error {
+	if address == "" {
+		return ErrInvalidAddress
+	}
+
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
 		return txn.removeProxy(address)
@@ -297,6 +328,11 @@ func (broker *EtcdMetaManipulationBroker) RemoveProxy(ctx context.Context, addre
 
 // RemoveUnusedProxiesFromCluster free the unused proxies.
 func (broker *EtcdMetaManipulationBroker) RemoveUnusedProxiesFromCluster(ctx context.Context, clusterName string) error {
+	err := validateClusterName(clusterName)
+	if err != nil {
+		return err
+	}
+
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
 		return txn.removeUnusedProxiesFromCluster(clusterName)
@@ -310,6 +346,11 @@ func (broker *EtcdMetaManipulationBroker) RemoveUnusedProxiesFromCluster(ctx con
 
 // RemoveCluster removes the cluster.
 func (broker *EtcdMetaManipulationBroker) RemoveCluster(ctx context.Context, clusterName string) error {
+	err := validateClusterName(clusterName)
+	if err != nil {
+		return err
+	}
+
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
 		return txn.removeCluster(clusterName)
@@ -323,6 +364,11 @@ func (broker *EtcdMetaManipulationBroker) RemoveCluster(ctx context.Context, clu
 
 // SetConfig change the config of cluster
 func (broker *EtcdMetaManipulationBroker) SetConfig(ctx context.Context, clusterName string, config map[string]string) error {
+	err := validateClusterName(clusterName)
+	if err != nil {
+		return err
+	}
+
 	response, err := conc.NewSTM(broker.client, func(s conc.STM) error {
 		txn := NewTxnBroker(broker.config, s)
 		return txn.setClusterConfig(clusterName, config)
@@ -332,4 +378,18 @@ func (broker *EtcdMetaManipulationBroker) SetConfig(ctx context.Context, cluster
 		log.Errorf("failed to remove cluster. response: %v. error: %v", response, err)
 	}
 	return err
+}
+
+func validateClusterName(name string) error {
+	if len(name) == 0 {
+		return errors.New("empty cluster name")
+	}
+
+	for _, c := range name {
+		if unicode.IsLetter(c) || unicode.IsDigit(c) || c == '.' || c == '-' || c == '_' {
+			continue
+		}
+		return fmt.Errorf("cannot use '%v' in cluster name", c)
+	}
+	return nil
 }
