@@ -2,6 +2,7 @@ build:
 	go build src/bin/overmoon/overmoon.go
 
 test:
+	# Need to start etcd first
 	go test ./...
 
 lint:

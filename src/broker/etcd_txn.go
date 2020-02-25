@@ -239,6 +239,8 @@ func (txn *TxnBroker) updateCluster(clusterName string, newGlobalEpoch uint64, c
 }
 
 func (txn *TxnBroker) setFailed(proxyAddress string) error {
+	// This does not clear the failures keys.
+	// Instead, we filter failed proxies in `GetFailures` api.
 	proxyKey := fmt.Sprintf("%s/all_proxies/%s", txn.config.PathPrefix, proxyAddress)
 	failedProxyKey := fmt.Sprintf("%s/failed_proxies/%s", txn.config.PathPrefix, proxyAddress)
 
