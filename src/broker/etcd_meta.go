@@ -379,16 +379,36 @@ func (broker *EtcdMetaBroker) AddFailure(ctx context.Context, address string, re
 
 // GetFailures retrieves the failures
 func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error) {
-	prefix := fmt.Sprintf("%s/failures/", broker.config.PathPrefix)
-	kv, err := getRangeKeyPostfixAndValue(ctx, broker.client, prefix)
+	failuresPrefix := fmt.Sprintf("%s/failures/", broker.config.PathPrefix)
+	failedProxyKeyPrefix := fmt.Sprintf("%s/failed_proxies/", broker.config.PathPrefix)
+
+	opts := []clientv3.OpOption{
+		clientv3.WithPrefix(),
+	}
+	response, err := broker.client.Txn(ctx).Then(
+		clientv3.OpGet(failuresPrefix, opts...),
+		clientv3.OpGet(failedProxyKeyPrefix, opts...),
+	).Commit()
+
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	if len(response.Responses) != 2 {
+		return nil, errors.Errorf("Unexpected response number: %d", len(response.Responses))
+	}
+
+	failuresKvs, err := parseRangeResult(failuresPrefix, response.Responses[0].GetResponseRange().Kvs)
+	if err != nil {
+		return nil, err
+	}
+	failedKvs, err := parseRangeResult(failedProxyKeyPrefix, response.Responses[1].GetResponseRange().Kvs)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now().Unix()
-	// TODO: add min failure config
-	addresses := make([]string, 0, len(kv))
-	for k, v := range kv {
+	failureAddresses := make(map[string]int)
+	for k, v := range failuresKvs {
 		segs := strings.SplitN(string(k), "/", 2)
 		if len(segs) != 2 {
 			err := fmt.Errorf("invalid failure key %s", string(k))
@@ -404,9 +424,21 @@ func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error)
 		if reportTimestamp-now > reportValidPeriod {
 			continue
 		}
-		addresses = append(addresses, proxyAddress)
+		failureAddresses[proxyAddress]++
 	}
-	return addresses, nil
+
+	failedAddresses := make(map[string]bool)
+	for addr := range failedKvs {
+		failedAddresses[addr] = true
+	}
+
+	addrs := make([]string, 0)
+	for addr := range failureAddresses {
+		if exists, _ := failedAddresses[addr]; !exists {
+			addrs = append(addrs, addr)
+		}
+	}
+	return addrs, nil
 }
 
 func (broker *EtcdMetaBroker) getAvailableProxies(ctx context.Context) (map[string]*ProxyStore, error) {
