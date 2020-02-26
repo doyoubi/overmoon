@@ -124,6 +124,12 @@ func (broker *EtcdMetaManipulationBroker) AddProxy(ctx context.Context, address 
 		log.Warnf("failed to add host. response: %v. error: %v", response, err)
 		return err
 	}
+
+	failuresPrefix := fmt.Sprintf("%s/failures/%s/", broker.config.PathPrefix, address)
+	opts := []clientv3.OpOption{
+		clientv3.WithPrefix(),
+	}
+	_, err = broker.client.Delete(ctx, failuresPrefix, opts...)
 	return nil
 }
 

@@ -46,9 +46,9 @@ func (proxy *HTTPBrokerProxy) Serve() error {
 	freqGroup.GET("/clusters/meta/:clusterName", proxy.handleGetCluster)
 	freqGroup.GET("/proxies/addresses", proxy.handleGetProxyAddresses)
 	freqGroup.GET("/proxies/meta/:proxyAddress", proxy.handleGetProxy)
-	freqGroup.POST("/failures/:proxyAddress/:reportID", proxy.handleAddFailure)
 	freqGroup.GET("/failures", proxy.handleGetFailure)
 
+	logGroup.POST("/failures/:proxyAddress/:reportID", proxy.handleAddFailure)
 	logGroup.PUT("/clusters/migrations", proxy.handleCommitMigration)
 
 	logGroup.POST("/clusters", proxy.handleAddCluster)

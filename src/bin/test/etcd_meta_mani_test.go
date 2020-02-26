@@ -145,6 +145,16 @@ func TestGetFailuresForFailedProxy(t *testing.T) {
 
 	addresses, err = metaBroker.GetFailures(ctx)
 	assert.Equal(0, len(addresses))
+
+	nodes := []string{
+		"127.0.0.1:7001",
+		"127.0.0.1:7002",
+	}
+	err = maniBroker.AddProxy(ctx, "127.0.0.1:6001", nodes)
+	assert.NoError(err)
+
+	addresses, err = metaBroker.GetFailures(ctx)
+	assert.Equal(0, len(addresses))
 }
 
 func TestCreateCluster(t *testing.T) {
