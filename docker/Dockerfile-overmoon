@@ -1,7 +1,6 @@
-FROM golang:1.12
+FROM golang:1.13-alpine
 
 WORKDIR /overmoon
 
-COPY docker/shared/overmoon /overmoon/
-
-VOLUME /overmoon/config.yaml
+COPY docker/shared/overmoon /bin/
+COPY ./config.yaml /overmoon/
