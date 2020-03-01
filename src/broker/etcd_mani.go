@@ -97,6 +97,16 @@ func (broker *EtcdMetaManipulationBroker) AddProxy(ctx context.Context, address 
 		return ErrInvalidNodesNum
 	}
 
+	failuresPrefix := fmt.Sprintf("%s/failures/%s/", broker.config.PathPrefix, address)
+	opts := []clientv3.OpOption{
+		clientv3.WithPrefix(),
+	}
+	_, err := broker.client.Delete(ctx, failuresPrefix, opts...)
+	if err != nil {
+		log.Errorf("failed to remove failures: %s", err)
+		return err
+	}
+
 	meta := &ProxyStore{
 		ProxyIndex:    0,
 		ClusterName:   "",
@@ -125,11 +135,6 @@ func (broker *EtcdMetaManipulationBroker) AddProxy(ctx context.Context, address 
 		return err
 	}
 
-	failuresPrefix := fmt.Sprintf("%s/failures/%s/", broker.config.PathPrefix, address)
-	opts := []clientv3.OpOption{
-		clientv3.WithPrefix(),
-	}
-	_, err = broker.client.Delete(ctx, failuresPrefix, opts...)
 	return nil
 }
 

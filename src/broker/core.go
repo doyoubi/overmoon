@@ -22,7 +22,7 @@ type MetaManipulationBroker interface {
 	ReplaceProxy(ctx context.Context, proxyAddress string) (*Host, error)
 	CommitMigration(ctx context.Context, task MigrationTaskMeta) error
 
-	// Extented API
+	// Extended API
 	InitGlobalEpoch() error
 	CreateCluster(ctx context.Context, clusterName string, nodeNum uint64) error
 	AddProxy(ctx context.Context, address string, nodes []string) error
