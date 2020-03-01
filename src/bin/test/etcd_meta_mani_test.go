@@ -157,6 +157,28 @@ func TestGetFailuresForFailedProxy(t *testing.T) {
 	assert.Equal(0, len(addresses))
 }
 
+func TestRemoveFailuresForFreeProxy(t *testing.T) {
+	assert := assert.New(t)
+	initManiData(assert)
+	maniBroker := genManiBroker(assert)
+	metaBroker := maniBroker.GetMetaBroker()
+	ctx := context.Background()
+
+	nodes := []string{"127.0.0.1:7000", "127.0.0.1:7001"}
+	proxyAddress := "127.0.0.1:6000"
+	maniBroker.AddProxy(ctx, proxyAddress, nodes)
+	metaBroker.AddFailure(ctx, proxyAddress, "test_report_id")
+
+	failures, err := metaBroker.GetFailures(ctx)
+	assert.NoError(err)
+	assert.Equal(len(failures), 1)
+
+	maniBroker.AddProxy(ctx, proxyAddress, nodes)
+	failures, err = metaBroker.GetFailures(ctx)
+	assert.NoError(err)
+	assert.Equal(len(failures), 0)
+}
+
 func TestCreateCluster(t *testing.T) {
 	assert := assert.New(t)
 	initManiData(assert)
