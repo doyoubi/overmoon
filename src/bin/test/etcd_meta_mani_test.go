@@ -202,6 +202,17 @@ func TestCreateCluster(t *testing.T) {
 	err = maniBroker.AddProxy(ctx, "127.0.0.1:6001", nodes1)
 	err = maniBroker.AddProxy(ctx, "127.0.0.2:6002", nodes2)
 	assert.NoError(err)
+
+	// Tests for invalid cluster names
+	err = maniBroker.CreateCluster(ctx, "", 4)
+	assert.Equal(broker.ErrInvalidClusterName, err)
+	longClusterName := "looooooooooooooong_cluster_name"
+	assert.Equal(31, len(longClusterName))
+	err = maniBroker.CreateCluster(ctx, longClusterName, 4)
+	assert.Equal(broker.ErrInvalidClusterName, err)
+	err = maniBroker.CreateCluster(ctx, "99cui*&^", 4)
+	assert.Equal(broker.ErrInvalidClusterName, err)
+
 	err = maniBroker.CreateCluster(ctx, clusterName, 4)
 	assert.NoError(err)
 

@@ -123,6 +123,9 @@ type Host struct {
 // MaxSlotNumber is specified by Redis Cluster
 const MaxSlotNumber = 16384
 
+// MaxClusterNameLen is the maximum length of cluter name
+const MaxClusterNameLen = 30
+
 const (
 	// MigratingTag is for source node
 	MigratingTag MigrationTagType = "Migrating"
