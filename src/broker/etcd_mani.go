@@ -15,6 +15,9 @@ import (
 const halfChunkSize = 2
 const chunkSize = halfChunkSize * 2
 
+// ErrInvalidClusterName indicates the cluster name is not valid.
+var ErrInvalidClusterName = errors.New("invalid cluster name. Length should not be longer than 30. Should only contains letters, digit, and '.' '-' '_'")
+
 // ErrClusterExists indicates the cluster has already existed.
 var ErrClusterExists = errors.New("cluster already exists")
 
@@ -393,14 +396,21 @@ func (broker *EtcdMetaManipulationBroker) SetConfig(ctx context.Context, cluster
 
 func validateClusterName(name string) error {
 	if len(name) == 0 {
-		return errors.New("empty cluster name")
+		log.Warn("empty cluster name")
+		return ErrInvalidClusterName
+	}
+
+	if len(name) > MaxClusterNameLen {
+		log.Warn("cluster name is longer than 30")
+		return ErrInvalidClusterName
 	}
 
 	for _, c := range name {
 		if unicode.IsLetter(c) || unicode.IsDigit(c) || c == '.' || c == '-' || c == '_' {
 			continue
 		}
-		return fmt.Errorf("cannot use '%v' in cluster name", c)
+		log.Warnf("cannot use '%v' in cluster name", c)
+		return ErrInvalidClusterName
 	}
 	return nil
 }
