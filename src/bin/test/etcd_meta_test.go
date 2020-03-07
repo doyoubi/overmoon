@@ -213,8 +213,30 @@ func TestEtcdAddFailures(t *testing.T) {
 	ctx := context.Background()
 
 	err := etcdBroker.AddFailure(ctx, "127.0.0.1:6001", "reporter_id1")
-	assert.Nil(err)
+	assert.NoError(err)
 	addresses, err := etcdBroker.GetFailures(ctx)
+	assert.NoError(err)
+	assert.Equal(1, len(addresses))
+	assert.Equal("127.0.0.1:6001", addresses[0])
+
+	etcdBroker.GetConfig().FailureQuorum = 2
+	addresses, err = etcdBroker.GetFailures(ctx)
+	assert.NoError(err)
+	assert.Equal(0, len(addresses))
+
+	err = etcdBroker.AddFailure(ctx, "127.0.0.1:6001", "reporter_id2")
+	assert.NoError(err)
+
+	addresses, err = etcdBroker.GetFailures(ctx)
+	assert.NoError(err)
+	assert.Equal(1, len(addresses))
+	assert.Equal("127.0.0.1:6001", addresses[0])
+
+	err = etcdBroker.AddFailure(ctx, "127.0.0.1:6001", "reporter_id3")
+	assert.NoError(err)
+
+	addresses, err = etcdBroker.GetFailures(ctx)
+	assert.NoError(err)
 	assert.Equal(1, len(addresses))
 	assert.Equal("127.0.0.1:6001", addresses[0])
 }

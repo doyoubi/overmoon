@@ -20,6 +20,7 @@ type proxyConfig struct {
 	failureTTL     int64
 	etcdNodes      []string
 	migrationLimit int64
+	failureQuorum  int64
 }
 
 func getConfig() (*proxyConfig, error) {
@@ -53,12 +54,18 @@ func getConfig() (*proxyConfig, error) {
 		migrationLimit = 2
 	}
 
+	failureQuorum := viper.GetInt64("failure_quorum")
+	if failureQuorum <= 0 {
+		failureQuorum = 1
+	}
+
 	return &proxyConfig{
 		address:        address,
 		pathPrefix:     pathPrefix,
 		failureTTL:     failureTTL,
 		etcdNodes:      etcdNodes,
 		migrationLimit: migrationLimit,
+		failureQuorum:  failureQuorum,
 	}, nil
 }
 
@@ -76,6 +83,7 @@ func RunBrokerService() error {
 		PathPrefix:     config.pathPrefix,
 		FailureTTL:     config.failureTTL,
 		MigrationLimit: config.migrationLimit,
+		FailureQuorum:  config.failureQuorum,
 	}
 	metaBroker, err := broker.NewEtcdMetaBrokerFromEndpoints(brokerCfg, config.etcdNodes)
 	if err != nil {

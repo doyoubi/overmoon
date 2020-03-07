@@ -69,6 +69,11 @@ func NewEtcdMetaBroker(config *EtcdConfig, client *clientv3.Client) (*EtcdMetaBr
 	}, nil
 }
 
+// GetConfig returns EtcdConfig
+func (broker *EtcdMetaBroker) GetConfig() *EtcdConfig {
+	return broker.config
+}
+
 // Serve runs the routine cleanup of cache
 func (broker *EtcdMetaBroker) Serve(ctx context.Context) error {
 	return broker.serveClearingCache(ctx)
@@ -433,7 +438,10 @@ func (broker *EtcdMetaBroker) GetFailures(ctx context.Context) ([]string, error)
 	}
 
 	addrs := make([]string, 0)
-	for addr := range failureAddresses {
+	for addr, count := range failureAddresses {
+		if int64(count) < broker.config.FailureQuorum {
+			continue
+		}
 		if exists, _ := failedAddresses[addr]; !exists {
 			addrs = append(addrs, addr)
 		}
@@ -521,4 +529,5 @@ type EtcdConfig struct {
 	PathPrefix     string
 	FailureTTL     int64
 	MigrationLimit int64
+	FailureQuorum  int64
 }

@@ -2,5 +2,6 @@ address: 127.0.0.1:7799
 migration_limit: 2
 path_prefix: /overmoon
 failure_ttl: 10
+failure_quorum: 1
 etcd_nodes:
   - 127.0.0.1:2380
