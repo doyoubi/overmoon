@@ -1,4 +1,4 @@
 package service
 
 // OvermoonVersion specify the service version.
-const OvermoonVersion = "0.1.3"
+const OvermoonVersion = "0.1.4"
